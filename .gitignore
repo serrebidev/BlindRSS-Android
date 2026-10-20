@@ -1,4 +1,5 @@
 /app/build/
+/ytdl/build/
 /.gradle/
 /local.properties
 /.kotlin/
