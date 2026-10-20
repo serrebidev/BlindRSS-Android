@@ -106,7 +106,7 @@ fun ProviderSetupScreen(nav: NavController, vm: AppViewModel, type: ProviderType
     val required = when (type) {
         ProviderType.MINIFLUX -> listOf("Server URL" to url, "API key" to secret)
         ProviderType.GREADER, ProviderType.FEVER -> listOf("Server URL" to url, "Username" to user, "API password" to secret)
-        ProviderType.THEOLDREADER, ProviderType.BAZQUX -> listOf("Email" to user, "Password" to secret)
+        ProviderType.THEOLDREADER, ProviderType.BAZQUX, ProviderType.FEEDBIN -> listOf("Email" to user, "Password" to secret)
         ProviderType.NEWSBLUR -> listOfNotNull("Username" to user, if (hasSession) null else "Password" to secret)
         ProviderType.INOREADER -> listOf("App ID" to appId, "App key" to appKey)
         ProviderType.LOCAL -> emptyList()
@@ -123,14 +123,14 @@ fun ProviderSetupScreen(nav: NavController, vm: AppViewModel, type: ProviderType
         }
         if (type == ProviderType.MINIFLUX || type == ProviderType.GREADER || type == ProviderType.FEVER) item { Field("Server URL", url, KeyboardType.Uri) { url = it } }
         when (type) {
-            ProviderType.THEOLDREADER, ProviderType.BAZQUX -> item { Field("Email", user, KeyboardType.Email) { user = it } }
+            ProviderType.THEOLDREADER, ProviderType.BAZQUX, ProviderType.FEEDBIN -> item { Field("Email", user, KeyboardType.Email) { user = it } }
             ProviderType.GREADER, ProviderType.FEVER, ProviderType.NEWSBLUR -> item { Field("Username", user) { user = it } }
             else -> {}
         }
         when (type) {
             ProviderType.MINIFLUX -> item { SecretField("API key", secret) { secret = it } }
             ProviderType.GREADER, ProviderType.FEVER -> item { SecretField("API password", secret) { secret = it } }
-            ProviderType.THEOLDREADER, ProviderType.BAZQUX, ProviderType.NEWSBLUR -> item { SecretField("Password", secret) { secret = it } }
+            ProviderType.THEOLDREADER, ProviderType.BAZQUX, ProviderType.FEEDBIN, ProviderType.NEWSBLUR -> item { SecretField("Password", secret) { secret = it } }
             ProviderType.INOREADER -> { item { Field("App ID", appId) { appId = it } }; item { SecretField("App key", appKey) { appKey = it } } }
             ProviderType.LOCAL -> {}
         }
@@ -164,11 +164,13 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
     val s = vm.repo.settings; val scope = rememberCoroutineScope(); val ctx = LocalContext.current
     var status by remember { mutableStateOf("") }
     when (section) {
-        "reading" -> { val openMode by s.articleOpenMode.collectAsState("BROWSER"); val ytMode by s.youtubeOpenMode.collectAsState("YOUTUBE_APP")
+        "reading" -> { val openMode by s.articleOpenMode.collectAsState("BROWSER"); val ytMode by s.youtubeOpenMode.collectAsState("YOUTUBE_APP"); val offline by s.saveFullText.collectAsState(false)
             SettingsPage("Reading", nav, vm) {
                 item { Choices("Open articles in", listOf("BROWSER" to "Browser", "FULL_TEXT" to "BlindRSS, full text", "FEED_TEXT" to "BlindRSS, feed text"), openMode) { scope.launch { s.setArticleOpenMode(it) } } }
                 item { Choices("Open YouTube videos in", listOf("YOUTUBE_APP" to "YouTube app", "SMARTTUBE" to "SmartTube", "BROWSER" to "Browser", "IN_APP" to "BlindRSS"), ytMode) { scope.launch { s.setYoutubeOpenMode(it) } }
                     Note("Falls back to the browser if the app is not installed.") }
+                item { Heading("Offline") }
+                item { SwitchRow("Save full text for offline reading", offline, "Downloads up to 50 new unread articles per refresh. Uses more data.") { scope.launch { s.setFlag("save_full_text", it) } } }
             } }
         "lists" -> { val lp by s.listPrefs.collectAsState(ListReadingPrefs()); fun save(p: ListReadingPrefs) { scope.launch { s.setListPrefs(p) } }
             SettingsPage("Article lists", nav, vm) {
@@ -183,7 +185,7 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { Choices("Read status", listOf("END" to "At the end", "START" to "After the title", "OFF" to "Off"), lp.statusPosition) { save(lp.copy(statusPosition = it)) } }
             } }
         "sync" -> { val interval by s.syncInterval.collectAsState(60); val wifi by s.wifiOnly.collectAsState(false)
-            val onStart by s.refreshOnStart.collectAsState(false); val notify by s.notifyNew.collectAsState(true)
+            val onStart by s.refreshOnStart.collectAsState(false); val notify by s.notifyNew.collectAsState(true); val keep by s.maxPerFeed.collectAsState(0)
             val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (!ok) status = "Notifications are blocked. Allow them in Android settings." }
             SettingsPage("Sync and notifications", nav, vm) {
                 item { Choices("Sync in background", listOf(0 to "Off", 15 to "Every 15 minutes", 30 to "Every 30 minutes", 60 to "Every hour", 240 to "Every 4 hours", 720 to "Every 12 hours"), interval) {
@@ -191,6 +193,8 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { Heading("Options") }
                 item { SwitchRow("Wi-Fi only", wifi) { scope.launch { s.setFlag("sync_wifi_only", it); SyncWorker.schedule(ctx) } } }
                 item { SwitchRow("Refresh when app opens", onStart) { scope.launch { s.setFlag("refresh_on_start", it) } } }
+                item { Choices("Keep per feed", listOf(0 to "All articles", 100 to "Newest 100", 250 to "Newest 250", 500 to "Newest 500", 1000 to "Newest 1000"), keep) { scope.launch { s.setMaxPerFeed(it) } }
+                    Note("Older articles are deleted after each refresh. Favorites are kept.") }
                 item { Heading("Notifications") }
                 item { SwitchRow("New articles", notify, "Mute single feeds from a feed's actions.") { on -> scope.launch { s.setNotify(on) }
                     if (on && android.os.Build.VERSION.SDK_INT >= 33 && ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)

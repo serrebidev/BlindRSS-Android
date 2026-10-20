@@ -32,11 +32,16 @@ import kotlinx.coroutines.flow.Flow
     @Delete suspend fun delete(a: ArticleEntity)
     @Query("DELETE FROM articles WHERE id = :id") suspend fun deleteById(id: String)
     @Query("DELETE FROM articles WHERE feedId = :feedId") suspend fun deleteByFeed(feedId: Long)
+    @Query("DELETE FROM articles WHERE feedId = :feedId AND isFavorite = 0 AND id NOT IN (SELECT id FROM articles WHERE feedId = :feedId ORDER BY date DESC LIMIT :keep)") suspend fun trimFeed(feedId: Long, keep: Int)
     @Query("SELECT * FROM articles WHERE feedId = :feedId AND url = :url AND remoteId IS NULL LIMIT 1") suspend fun localByUrl(feedId: Long, url: String): ArticleEntity?
     @Query("SELECT url FROM articles WHERE feedId = :feedId AND remoteId IS NOT NULL") suspend fun syncedUrls(feedId: Long): List<String>
     @Query("UPDATE articles SET isRead = :read, isFavorite = :fav, remoteId = :remoteId WHERE id = :id") suspend fun setRemoteState(id: String, read: Boolean, fav: Boolean, remoteId: String)
     @Query("SELECT * FROM articles WHERE isRead = 0 AND remoteId IS NOT NULL") suspend fun unreadRemote(): List<ArticleEntity>
+    @Query("SELECT * FROM articles WHERE isRead = 0 AND id != :exclude ORDER BY date DESC LIMIT 1") suspend fun nextUnread(exclude: String): ArticleEntity?
     @Query("UPDATE articles SET isRead = 1 WHERE id IN (:ids)") suspend fun markRead(ids: List<String>)
+    // Unread, newer than since, not yet tried for offline text (no __fulltext or __fulltext_none label), no media.
+    @Query("SELECT * FROM articles WHERE isRead = 0 AND url != '' AND mediaUrl IS NULL AND date > :since AND instr(labels, '__fulltext') = 0 ORDER BY date DESC LIMIT :n") suspend fun offlineCandidates(n: Int, since: Long): List<ArticleEntity>
+    @Query("UPDATE articles SET content = :content, labels = :labels WHERE id = :id") suspend fun setContent(id: String, content: String, labels: String)
     @Query("SELECT COUNT(*) FROM articles WHERE isRead = 0") fun unreadCount(): Flow<Int>
 }
 @Dao interface MiscDao {

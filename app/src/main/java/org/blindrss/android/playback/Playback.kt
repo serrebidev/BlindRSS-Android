@@ -41,7 +41,8 @@ class PlayerController(private val ctx: Context, private val repo: Repository) {
     private val sponsorTick = object : Runnable { override fun run() {
         val p = player; if (p != null && p.isPlaying) { val pos = p.currentPosition; sponsorSegments.firstOrNull { pos >= it.first && pos < it.second - 500 }?.let { p.seekTo(it.second) } }
         mainHandler.postDelayed(this, 500) } }
-    fun ensure() { if (player == null) { player = ExoPlayer.Builder(ctx).build(); player!!.addListener(object : Player.Listener { override fun onIsPlayingChanged(p: Boolean) { _playing.value = p } })
+    fun ensure() { if (player == null) { player = ExoPlayer.Builder(ctx).build(); player!!.addListener(object : Player.Listener { override fun onIsPlayingChanged(p: Boolean) { _playing.value = p }
+            override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_ENDED) onEnded?.invoke() } })
         CoroutineScope(Dispatchers.Main).launch { try { player!!.skipSilenceEnabled = repo.settings.skipSilence.first(); setSpeed(repo.settings.playbackSpeed.first())
             val bands = repo.settings.eqBands.first(); val enabled = repo.settings.eqEnabled.first()
             if (enabled || bands.isNotEmpty()) applyEqualizer(enabled, bands) } catch (_: Exception) {} }
@@ -68,7 +69,20 @@ class PlayerController(private val ctx: Context, private val repo: Repository) {
             sponsorSegments = segs
         } catch (_: Exception) {}
     }
+    // Set by read aloud to move on when a spoken article ends; any normal play() clears it.
+    var onEnded: (() -> Unit)? = null
+    // Spoken article: first audio part now, later parts appended as they are synthesized.
+    fun playSpoken(articleId: String, title: String, first: File) {
+        ensure(); currentArticleId = articleId; _title.value = title; chapters = emptyList(); sponsorSegments = emptyList()
+        player!!.setMediaItem(MediaItem.Builder().setUri(android.net.Uri.fromFile(first)).setMediaId(articleId).build()); player!!.prepare(); player!!.play()
+    }
+    // If playback already ran out while this part was being made, continue from it.
+    fun appendSpoken(part: File) { val p = player ?: return
+        p.addMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(part)))
+        if (p.playbackState == Player.STATE_ENDED) { p.seekTo(p.mediaItemCount - 1, 0); p.play() } }
+    fun isEnded() = player?.playbackState == Player.STATE_ENDED
     suspend fun play(articleId: String, mediaUrl: String, title: String, startMs: Long = 0) {
+        onEnded = null
         ensure(); currentArticleId = articleId; _title.value = title
         chapters = repo.misc.chapters(articleId)
         if (chapters.isEmpty()) repo.articles.byId(articleId)?.let { chapters = repo.ensureChapters(it) }

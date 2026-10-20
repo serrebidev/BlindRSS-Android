@@ -17,7 +17,7 @@ import javax.crypto.spec.GCMParameterSpec
 private val Context.ds by preferencesDataStore("blindrss_settings")
 
 enum class ProviderType(val label: String) {
-    LOCAL("This device"), MINIFLUX("Miniflux"), INOREADER("Inoreader"), THEOLDREADER("The Old Reader"), BAZQUX("BazQux"),
+    LOCAL("This device"), MINIFLUX("Miniflux"), INOREADER("Inoreader"), THEOLDREADER("The Old Reader"), BAZQUX("BazQux"), FEEDBIN("Feedbin"),
     GREADER("FreshRSS (Google Reader API)"), FEVER("Fever API"), NEWSBLUR("NewsBlur")
 }
 
@@ -52,6 +52,16 @@ class SettingsStore(private val ctx: Context) {
     suspend fun setFlag(name: String, v: Boolean) { ctx.ds.edit { it[booleanPreferencesKey(name)] = v } }
     val wifiOnly = flag("sync_wifi_only", false)
     val refreshOnStart = flag("refresh_on_start", false)
+    val saveFullText = flag("save_full_text", false)
+    // Articles kept per feed; 0 keeps everything.
+    val maxPerFeed: Flow<Int> = ctx.ds.data.map { it[intPreferencesKey("max_per_feed")] ?: 0 }
+    suspend fun setMaxPerFeed(v: Int) { ctx.ds.edit { it[intPreferencesKey("max_per_feed")] = v } }
+    // Read/favorite changes not yet accepted by the provider: "R|articleId|1", "F|articleId|0".
+    private val OUTBOX = stringSetPreferencesKey("outbox")
+    val outbox: Flow<Set<String>> = ctx.ds.data.map { it[OUTBOX] ?: emptySet() }
+    suspend fun editOutbox(f: (Set<String>) -> Set<String>) { ctx.ds.edit { it[OUTBOX] = f(it[OUTBOX] ?: emptySet()) } }
+    val minifluxCursor: Flow<Long> = ctx.ds.data.map { it[longPreferencesKey("miniflux_cursor")] ?: 0L }
+    suspend fun setMinifluxCursor(v: Long) { ctx.ds.edit { it[longPreferencesKey("miniflux_cursor")] = v } }
     suspend fun setSpeed(v: Float) { ctx.ds.edit { it[PLAYBACK_SPEED] = v } }
     suspend fun setSyncInterval(v: Int) { ctx.ds.edit { it[SYNC_INTERVAL_MIN] = v } }
     suspend fun setNotify(v: Boolean) { ctx.ds.edit { it[NOTIFY_NEW] = v } }

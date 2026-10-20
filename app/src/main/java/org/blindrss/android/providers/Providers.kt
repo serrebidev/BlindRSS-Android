@@ -24,6 +24,12 @@ interface SyncProvider {
     suspend fun markAllRead()
     // Every unread item id on the server, when the API lists them cheaply. Local copies missing from it are marked read.
     suspend fun unreadIds(): Set<String>? = null
+    // Incremental-sync position to store after a successful sync (Miniflux only).
+    val nextCursor: Long? get() = null
+    // Ask the server to fetch its feeds now (manual refresh). No-op where unsupported.
+    suspend fun refreshServer() {}
+    // Send an article to the read-later services configured on the server (Miniflux integrations).
+    suspend fun saveToIntegrations(remoteId: String) { throw IOException("$typeName has no save integrations") }
 }
 
 abstract class BaseHttp {
@@ -152,25 +158,54 @@ class BaseHttpPub : BaseHttp() {
     fun postForm(url: String, form: Map<String, String>): String = req(url, null, "POST", form = form)
 }
 
-class MinifluxProvider(private val server: String, private val apiKey: String) : BaseHttp(), SyncProvider {
+// cursor: changed_at (epoch seconds) of the last sync; 0 = first sync. After a sync, nextCursor holds the new value.
+class MinifluxProvider(private val server: String, private val apiKey: String, private val cursor: Long = 0) : BaseHttp(), SyncProvider {
     override val typeName = "Miniflux"
     private val root = server.removeSuffix("/v1").trimEnd('/')
     private fun auth() = "X-Auth-Token" to apiKey
+    override var nextCursor: Long? = null; private set
     override suspend fun testLogin(): String { val u = req("$root/v1/me", auth()); return "Miniflux user: ${JSONObject(u).optString("username", "ok")}" }
     override suspend fun fetchFeeds(): List<RemoteFeed> {
         val arr = JSONArray(req("$root/v1/feeds", auth()))
         return (0 until arr.length()).map { val o = arr.getJSONObject(it); RemoteFeed(o.getLong("id").toString(), o.optString("title"), o.optString("feed_url"), o.optJSONObject("category")?.optString("title", "Uncategorized") ?: "Uncategorized") }
     }
-    // Newest 200, plus up to 500 unread and 200 starred, so older unread items and favorites still arrive.
-    override suspend fun fetchArticles(): List<RemoteArticle> =
-        listOf("limit=200", "status=unread&limit=500", "starred=true&limit=200").flatMap { entries("$it&order=published_at&direction=desc") }.distinctBy { it.remoteId }
-    private fun entries(query: String): List<RemoteArticle> {
-        val arr = JSONObject(req("$root/v1/entries?$query", auth())).optJSONArray("entries") ?: JSONArray()
-        return (0 until arr.length()).map { val o = arr.getJSONObject(it)
-            val encArr = o.optJSONArray("enclosures"); val media = if (encArr != null && encArr.length() > 0) encArr.getJSONObject(0).optString("url").ifEmpty { null } else null
-            RemoteArticle(o.getLong("id").toString(), o.getLong("feed_id").toString(), o.optString("title"), o.optString("url"), o.optString("content"), parseIso(o.optString("published_at")), o.optString("author"), o.optString("status") == "read", o.optBoolean("starred"), media) }
+    // After the first sync, only entries changed since the last one (60 s overlap): new items plus read and star
+    // changes made anywhere, at any age. First sync, or a server that ignores changed_after: newest 200, 500 unread, 200 starred.
+    override suspend fun fetchArticles(): List<RemoteArticle> {
+        if (cursor > 0) changedSince(cursor - 60)?.let { return it }
+        val got = listOf("limit=200", "status=unread&limit=500", "starred=true&limit=200").map { page("$it&order=published_at&direction=desc") }
+        nextCursor = got.maxOfOrNull { it.newest }?.takeIf { it > 0 }
+        return got.flatMap { it.items }.distinctBy { it.remoteId }
     }
-    private fun parseIso(s: String): Long = try { java.time.Instant.parse(s).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
+    private fun changedSince(since: Long): List<RemoteArticle>? {
+        val out = mutableListOf<RemoteArticle>(); var newest = since; var offset = 0
+        while (true) {
+            val pg = page("changed_after=$since&order=id&direction=asc&limit=100&offset=$offset")
+            if (offset == 0 && pg.oldest in 1 until since) return null // server ignored changed_after
+            out += pg.items; newest = maxOf(newest, pg.newest); offset += pg.items.size
+            if (pg.items.isEmpty() || offset >= pg.total) break
+            if (offset >= 3000) return null // too many changes (bulk edit on the web): resync from windows instead
+        }
+        nextCursor = newest; return out
+    }
+    // newest and oldest are changed_at in epoch seconds (0 when absent).
+    private class Page(val items: List<RemoteArticle>, val newest: Long, val total: Int, val oldest: Long)
+    private fun page(query: String): Page {
+        val j = JSONObject(req("$root/v1/entries?$query", auth())); val arr = j.optJSONArray("entries") ?: JSONArray()
+        val items = parseEntries(arr.toString())
+        val changed = (0 until arr.length()).map { isoSeconds(arr.getJSONObject(it).optString("changed_at")) }.filter { it > 0 }
+        return Page(items, changed.maxOrNull() ?: 0, j.optInt("total", items.size), changed.minOrNull() ?: 0)
+    }
+    override suspend fun refreshServer() { req("$root/v1/feeds/refresh", auth(), "PUT") }
+    override suspend fun saveToIntegrations(remoteId: String) { req("$root/v1/entries/$remoteId/save", auth(), "POST") }
+    companion object {
+        fun isoSeconds(s: String): Long = try { java.time.Instant.parse(s).epochSecond } catch (_: Exception) { 0 }
+        fun parseEntries(raw: String): List<RemoteArticle> { val arr = JSONArray(raw)
+            return (0 until arr.length()).map { val o = arr.getJSONObject(it)
+                val encArr = o.optJSONArray("enclosures"); val media = if (encArr != null && encArr.length() > 0) encArr.getJSONObject(0).optString("url").ifEmpty { null } else null
+                val published = isoSeconds(o.optString("published_at")).takeIf { it > 0 }?.times(1000) ?: System.currentTimeMillis()
+                RemoteArticle(o.getLong("id").toString(), o.getLong("feed_id").toString(), o.optString("title"), o.optString("url"), o.optString("content"), published, o.optString("author"), o.optString("status") == "read", o.optBoolean("starred"), media) } }
+    }
     override suspend fun setRead(remoteId: String, read: Boolean) { req("$root/v1/entries", auth(), "PUT", JSONObject().put("entry_ids", JSONArray().put(remoteId.toLong())).put("status", if (read) "read" else "unread").toString().toRequestBody("application/json".toMediaType())) }
     // The bookmark endpoint toggles, so only call it when the server state differs.
     override suspend fun setFavorite(remoteId: String, fav: Boolean) {
@@ -238,6 +273,64 @@ class FeverProvider(private val server: String, private val apiKeyMd5: String) :
         }
     }
 }
+
+// Feedbin REST API v2, HTTP Basic auth. Feeds are keyed by feed_id (what entries carry); subscription ids only matter for unsubscribe.
+class FeedbinProvider(private val user: String, private val pass: String) : BaseHttp(), SyncProvider {
+    override val typeName = "Feedbin"
+    private val root = "https://api.feedbin.com/v2"
+    private fun auth() = "Authorization" to Credentials.basic(user, pass)
+    private fun json(method: String, path: String, body: JSONObject) = req("$root$path", auth(), method, body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+    private fun ids(path: String): List<Long> = JSONArray(req("$root$path", auth())).let { a -> (0 until a.length()).map { a.getLong(it) } }
+    // Feedbin caps bulk unread/starred edits at 1000 ids per request.
+    private fun bulk(method: String, path: String, key: String, ids: List<Long>) = ids.chunked(1000).forEach { json(method, path, JSONObject().put(key, JSONArray(it))) }
+    override suspend fun testLogin(): String { req("$root/authentication.json", auth()); return "Feedbin: $user" }
+    override suspend fun fetchFeeds(): List<RemoteFeed> {
+        val tags = JSONArray(req("$root/taggings.json", auth())); val cat = mutableMapOf<String, String>()
+        for (i in 0 until tags.length()) tags.getJSONObject(i).let { cat.putIfAbsent(it.optLong("feed_id").toString(), it.str("name")) }
+        val subs = JSONArray(req("$root/subscriptions.json", auth()))
+        return (0 until subs.length()).map { val o = subs.getJSONObject(it); val fid = o.getLong("feed_id").toString(); RemoteFeed(fid, o.str("title"), o.str("feed_url"), cat[fid] ?: "Uncategorized") }
+    }
+    override suspend fun unreadIds(): Set<String> = ids("/unread_entries.json").map { it.toString() }.toSet()
+    // Newest 100, plus up to 500 unread and 200 starred fetched by id, 100 per request.
+    override suspend fun fetchArticles(): List<RemoteArticle> {
+        val unread = ids("/unread_entries.json").toSet(); val starred = ids("/starred_entries.json").toSet()
+        val recent = parseEntries(req("$root/entries.json?per_page=100&include_enclosure=true", auth()), unread, starred)
+        val have = recent.map { it.remoteId }.toSet()
+        val more = (unread.sortedDescending().take(500) + starred.sortedDescending().take(200)).distinct().filter { it.toString() !in have }
+            .chunked(100).flatMap { parseEntries(req("$root/entries.json?include_enclosure=true&ids=${it.joinToString(",")}", auth()), unread, starred) }
+        return (recent + more).distinctBy { it.remoteId }
+    }
+    override suspend fun setRead(remoteId: String, read: Boolean) { bulk(if (read) "DELETE" else "POST", "/unread_entries.json", "unread_entries", listOf(remoteId.toLong())) }
+    override suspend fun setFavorite(remoteId: String, fav: Boolean) { bulk(if (fav) "POST" else "DELETE", "/starred_entries.json", "starred_entries", listOf(remoteId.toLong())) }
+    override suspend fun addFeed(url: String, category: String): RemoteFeed? {
+        val o = JSONObject(json("POST", "/subscriptions.json", JSONObject().put("feed_url", url))); val fid = o.getLong("feed_id")
+        if (category.isNotBlank() && category != "Uncategorized") json("POST", "/taggings.json", JSONObject().put("feed_id", fid).put("name", category))
+        return RemoteFeed(fid.toString(), o.str("title"), o.str("feed_url").ifEmpty { url }, category)
+    }
+    override suspend fun removeFeed(remoteId: String, category: String) {
+        val subs = JSONArray(req("$root/subscriptions.json", auth()))
+        val sub = (0 until subs.length()).map { subs.getJSONObject(it) }.firstOrNull { it.optLong("feed_id").toString() == remoteId } ?: return
+        req("$root/subscriptions/${sub.getLong("id")}.json", auth(), "DELETE")
+    }
+    override suspend fun markFeedRead(remoteId: String) {
+        val unread = ids("/unread_entries.json").toSet(); val inFeed = mutableListOf<Long>()
+        for (page in 1..20) { val a = JSONArray(req("$root/feeds/$remoteId/entries.json?read=false&per_page=100&page=$page", auth())); if (a.length() == 0) break
+            for (i in 0 until a.length()) a.getJSONObject(i).getLong("id").takeIf { it in unread }?.let { inFeed += it } }
+        bulk("DELETE", "/unread_entries.json", "unread_entries", inFeed)
+    }
+    override suspend fun markAllRead() { bulk("DELETE", "/unread_entries.json", "unread_entries", ids("/unread_entries.json")) }
+    companion object {
+        fun parseEntries(raw: String, unread: Set<Long>, starred: Set<Long>): List<RemoteArticle> {
+            val a = JSONArray(raw)
+            return (0 until a.length()).map { val o = a.getJSONObject(it); val id = o.getLong("id")
+                val date = try { java.time.Instant.parse(o.str("published")).toEpochMilli() } catch (_: Exception) { System.currentTimeMillis() }
+                RemoteArticle(id.toString(), o.optLong("feed_id").toString(), o.str("title"), o.str("url"), o.str("content"), date, o.str("author"),
+                    id !in unread, id in starred, o.optJSONObject("enclosure")?.str("enclosure_url")?.ifEmpty { null }) }
+        }
+    }
+}
+// org.json returns the text "null" for JSON null; Feedbin sends null titles and authors often.
+private fun JSONObject.str(k: String): String = if (isNull(k)) "" else optString(k)
 
 class NewsBlurProvider(private val cookieOrToken: String) : BaseHttp(), SyncProvider {
     override val typeName = "NewsBlur"

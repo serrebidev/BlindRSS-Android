@@ -46,6 +46,7 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
     var menu by remember { mutableStateOf(false) }
     val feedTitle = feeds.firstOrNull { it.id == a.feedId }?.title ?: ""
     val dateStr = DateFormat.getDateInstance().format(Date(a.date))
+    val canSave by vm.canSaveToIntegrations.collectAsState()
     val state = buildString { if (!a.isRead) append("Unread. "); if (a.isFavorite) append("Favorite. "); if (a.mediaUrl != null) append("Has media. ") }
     // Reading order (user-configurable): title, source, info, article text, status.
     val speech = ListReading.articleSpeech(a.title, feedTitle, a.author, dateStr,
@@ -61,7 +62,9 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
                 CustomAccessibilityAction("Download episode") { vm.download(a); true },
                 CustomAccessibilityAction("Open externally") { vm.openInBrowser(ctx, a); true },
                 CustomAccessibilityAction("Read in app") { onReadInApp(); true },
+                CustomAccessibilityAction("Read aloud") { vm.readAloud(a); true },
                 CustomAccessibilityAction("Share") { shareText(ctx, a.title, a.url); true },
+            ) + listOfNotNull(if (canSave && a.remoteId != null) CustomAccessibilityAction("Save to integrations") { vm.saveToIntegrations(a); true } else null) + listOf(
                 CustomAccessibilityAction("Play") { vm.play(a); true },
                 CustomAccessibilityAction("Delete") { vm.deleteArticle(a); true }
             )
@@ -82,7 +85,9 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
             }
             DropdownMenuItem({ Text("Open externally") }, { menu = false; vm.openInBrowser(ctx, a) })
             DropdownMenuItem({ Text("Read in app") }, { menu = false; onReadInApp() })
+            DropdownMenuItem({ Text("Read aloud") }, { menu = false; vm.readAloud(a) })
             DropdownMenuItem({ Text("Share") }, { menu = false; shareText(ctx, a.title, a.url) })
+            if (canSave && a.remoteId != null) DropdownMenuItem({ Text("Save to integrations") }, { menu = false; vm.saveToIntegrations(a) })
             DropdownMenuItem({ Text("Delete") }, { menu = false; vm.deleteArticle(a) })
         }
     }
@@ -189,7 +194,9 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
     val scope = rememberCoroutineScope()
     Scaffold(topBar = { TopAppBar(title = { Text("Article", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = {
         article?.let { a ->
+            IconButton(onClick = { vm.readAloud(a) }, Modifier.semantics { contentDescription = "Read aloud" }) { Icon(Icons.Filled.RecordVoiceOver, null) }
             IconButton(onClick = { shareText(ctx, a.title, a.url) }, Modifier.semantics { contentDescription = "Share article" }) { Icon(Icons.Filled.Share, null) }
+            if (vm.canSaveToIntegrations.collectAsState().value && a.remoteId != null) IconButton(onClick = { vm.saveToIntegrations(a) }, Modifier.semantics { contentDescription = "Save to integrations" }) { Icon(Icons.Filled.BookmarkAdd, null) }
             IconButton(onClick = { vm.openInBrowser(ctx, a) }, Modifier.semantics { contentDescription = "Open original article externally" }) { Icon(Icons.Filled.OpenInBrowser, null) }
         }
     }) }) { pad ->
@@ -411,7 +418,7 @@ fun CategoriesScreen(nav: NavController, vm: AppViewModel) {
     val feedCat = feeds.associate { it.id to it.category }
     val names = remember(all, feeds) { val counts = mutableMapOf<String, Int>()
         for (a in all) { val folder = a.folder ?: feedCat[a.feedId] ?: "Uncategorized"; counts[folder] = (counts[folder] ?: 0) + 1
-            for (l in a.labels.split(",").map { it.trim() }.filter { it.isNotEmpty() && it != "__no_notify" }) counts["Label: $l"] = (counts["Label: $l"] ?: 0) + 1 }
+            for (l in a.labels.split(",").map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("__") }) counts["Label: $l"] = (counts["Label: $l"] ?: 0) + 1 }
         counts.entries.sortedBy { it.key } }
     Scaffold(topBar = { TopAppBar(title = { Text("Categories and Labels", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)

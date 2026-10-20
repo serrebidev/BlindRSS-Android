@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.Cache
+import okhttp3.CacheControl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.blindrss.android.feed.*
@@ -17,13 +19,19 @@ import org.blindrss.android.settings.ProviderType
 import org.blindrss.android.settings.SettingsStore
 
 class Repository(val ctx: Context) {
-    val db: AppDatabase = Room.databaseBuilder(ctx, AppDatabase::class.java, "blindrss.db").fallbackToDestructiveMigration().build()
+    // One database and one HTTP cache per process: the background worker builds its own Repository, and two Room
+    // instances do not see each other's writes (lists would not update), two caches on one folder corrupt it.
+    val db: AppDatabase = shared(ctx).first
     val feeds = db.feedDao(); val articles = db.articleDao(); val misc = db.miscDao()
     val settings = SettingsStore(ctx)
-    private val http = OkHttpClient()
+    private val http: OkHttpClient = shared(ctx).second
 
-    suspend fun fetchText(url: String): String = withContext(Dispatchers.IO) {
-        http.newCall(Request.Builder().url(url).header("User-Agent", "BlindRSS-Android/1.0").build()).execute().use { r -> if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url"); r.body?.string() ?: "" }
+    suspend fun fetchText(url: String): String = fetchFeed(url, ifChanged = false)!!
+    // Revalidates against the HTTP cache (ETag / Last-Modified). ifChanged: null when the server answered 304.
+    private suspend fun fetchFeed(url: String, ifChanged: Boolean = true): String? = withContext(Dispatchers.IO) {
+        http.newCall(Request.Builder().url(url).header("User-Agent", "BlindRSS-Android/1.0").cacheControl(CacheControl.Builder().noCache().build()).build()).execute().use { r ->
+            if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url")
+            if (ifChanged && r.networkResponse?.code == 304) null else r.body?.let { b -> decode(b.bytes(), b.contentType()?.charset()) } ?: "" }
     }
     suspend fun resolveFeedUrl(input: String): String {
         val normalized = FeedDiscovery.normalizeInput(input)
@@ -47,7 +55,8 @@ class Repository(val ctx: Context) {
         saveArticles(feed, parsed.articles); feed
     }
     suspend fun refreshFeed(feed: FeedEntity): Int = withContext(Dispatchers.IO) {
-        try { val xml = fetchText(feed.url); val parsed = FeedParser.parse(xml, feed.url)
+        try { val xml = fetchFeed(feed.url) ?: run { feeds.update(feed.copy(lastError = null, lastSuccessAt = System.currentTimeMillis(), consecutiveFailures = 0)); return@withContext 0 }
+            val parsed = FeedParser.parse(xml, feed.url)
             val named = if (feed.title.isBlank()) feed.copy(title = parsed.title) else feed
             val n = saveArticles(feed, parsed.articles)
             feeds.update(named.copy(lastError = null, lastSuccessAt = System.currentTimeMillis(), consecutiveFailures = 0)); n
@@ -56,16 +65,24 @@ class Repository(val ctx: Context) {
     data class RefreshResult(val newArticles: Int, val toNotify: Int, val failedFeeds: Int, val localFeeds: Int, val providerError: String?, val nothingWorked: Boolean)
     // One refresh for the Refresh button and the background worker: local feeds 8 at a time, then the provider.
     // Provider-owned feeds (remoteId set) come only from the provider, never fetched directly, so nothing doubles.
-    suspend fun refreshAll(): RefreshResult = withContext(Dispatchers.IO) {
+    // manual: also asks the provider's server to fetch its feeds first (Miniflux), so new items appear on the next sync.
+    suspend fun refreshAll(manual: Boolean = false): RefreshResult = withContext(Dispatchers.IO) {
         val local = feeds.all().filter { it.remoteId == null }; val gate = Semaphore(8)
         val counts = coroutineScope { local.map { f -> async { gate.withPermit { try { refreshFeed(f) to f.muted } catch (_: Exception) { null } } } }.awaitAll() }
         var total = counts.sumOf { it?.first ?: 0 }; var notify = counts.sumOf { if (it == null || it.second) 0 else it.first }
         val p0 = buildProvider()
+        if (manual) try { p0?.refreshServer() } catch (_: Exception) {}
         val err = p0?.let { p -> try { val (_, n, quiet) = syncWith(p); total += n; notify += n - quiet; null } catch (e: Exception) { e.message ?: e.javaClass.simpleName } }
+        trimFeeds()
+        saveOfflineText()
         val failed = counts.count { it == null }
         RefreshResult(total, notify, failed, local.size, err, failed == local.size && (p0 == null || err != null) && (local.isNotEmpty() || p0 != null))
     }
-    private suspend fun saveArticles(feed: FeedEntity, parsed: List<ParsedArticle>): Int {
+    // Settings > Sync > Keep per feed: drop the oldest beyond the limit, favorites always kept.
+    private suspend fun trimFeeds() { val keep = settings.maxPerFeed.first(); if (keep > 0) for (f in feeds.all()) articles.trimFeed(f.id, keep) }
+    private suspend fun saveArticles(feed: FeedEntity, all: List<ParsedArticle>): Int {
+        // With a per-feed limit, a long feed only contributes its newest items, so trimmed ones never return as new.
+        val keep = settings.maxPerFeed.first(); val parsed = if (keep > 0) all.sortedByDescending { it.date }.take(keep) else all
         val rules = misc.enabledRules()
         // Skip articles the user deleted, and ones a provider already synced into this feed (same link, provider id).
         val deleted = misc.deletedIds().toHashSet(); val synced = articles.syncedUrls(feed.id).filter { it.isNotEmpty() }.toHashSet()
@@ -102,6 +119,7 @@ class Repository(val ctx: Context) {
     suspend fun markAllRead() = withContext(Dispatchers.IO) { articles.markAllRead(); try { buildProvider()?.markAllRead() } catch (_: Exception) {} }
     suspend fun exportOpml(): String { val list = feeds.all().map { it.title to (it.url to it.category) }; return Opml.write(list) }
     suspend fun fullText(a: ArticleEntity): String {
+        if (OFFLINE in a.labels.split(",")) return a.content
         // Miniflux can extract server-side; prefer it for Miniflux-synced articles.
         val p = try { buildProvider() } catch (_: Exception) { null }
         if (p is MinifluxProvider && a.remoteId != null) {
@@ -136,12 +154,12 @@ class Repository(val ctx: Context) {
         val secret = acct.secret.ifEmpty { settings.secret() }
         val appId = acct.appId.ifEmpty { settings.appId() }; val appKey = acct.appKey.ifEmpty { settings.appKey() }
         val refresh = acct.refresh.ifEmpty { settings.refreshToken() }
-        return providerFor(type, SettingsStore.Account(url, user, secret, appId, appKey, refresh))
+        return providerFor(type, SettingsStore.Account(url, user, secret, appId, appKey, refresh), settings.minifluxCursor.first())
     }
-    fun providerFor(type: ProviderType, a: SettingsStore.Account): SyncProvider? {
+    fun providerFor(type: ProviderType, a: SettingsStore.Account, cursor: Long = 0): SyncProvider? {
         val (url, user, secret, appId, appKey, refresh) = a
         return when (type) {
-            ProviderType.MINIFLUX -> MinifluxProvider(url, secret)
+            ProviderType.MINIFLUX -> MinifluxProvider(url, secret, cursor)
             ProviderType.INOREADER -> InoreaderProvider(secret, appId, appKey, refresh) { newAccess, newRefresh ->
                 val cur = settings.account(ProviderType.INOREADER)
                 settings.saveAccount(ProviderType.INOREADER, cur.copy(secret = newAccess, refresh = newRefresh.ifEmpty { cur.refresh })) }
@@ -150,6 +168,7 @@ class Repository(val ctx: Context) {
             ProviderType.GREADER -> FreshRssProvider(url, user, secret)
             ProviderType.FEVER -> FeverProvider(url, if (secret.length == 32 && secret.all { it.isDigit() || it in 'a'..'f' }) secret else FeverProvider.md5Hex("$user:$secret"))
             ProviderType.NEWSBLUR -> NewsBlurProvider(secret)
+            ProviderType.FEEDBIN -> FeedbinProvider(user, secret)
             ProviderType.LOCAL -> null
         }
     }
@@ -162,7 +181,10 @@ class Repository(val ctx: Context) {
         settings.saveAccount(type, acct); switchTo(type); who
     }
     // Feeds from the previous provider become plain local feeds (kept, refreshed directly) when the account changes.
-    private suspend fun switchTo(type: ProviderType) { if (settings.provider.first() != type) feeds.clearRemoteIds(); settings.setActive(type) }
+    private suspend fun switchTo(type: ProviderType) {
+        if (settings.provider.first() != type) { feeds.clearRemoteIds(); settings.editOutbox { emptySet() } }
+        settings.setMinifluxCursor(0); settings.setActive(type)
+    }
     suspend fun signOut() { settings.saveAccount(settings.provider.first(), SettingsStore.Account()); switchTo(ProviderType.LOCAL); settings.saveProvider(ProviderType.LOCAL, "", "", "") }
     suspend fun exchangeInoreaderCode(code: String): String = withContext(Dispatchers.IO) {
         val acct = settings.account(ProviderType.INOREADER)
@@ -179,6 +201,7 @@ class Repository(val ctx: Context) {
     // Mirrors the account: feeds added, renamed, moved or removed on the server; new articles inserted;
     // read and favorite state of known articles updated. Returns feeds, new articles, new articles not to notify about.
     private suspend fun syncWith(p: SyncProvider): Triple<Int, Int, Int> {
+        flushOutbox(p)
         val remoteFeeds = p.fetchFeeds(); val remoteIds = remoteFeeds.map { it.remoteId }.toSet()
         for (f in feeds.all()) if (f.remoteId != null && f.remoteId !in remoteIds) { articles.deleteByFeed(f.id); feeds.delete(f) }
         for (rf in remoteFeeds) {
@@ -190,23 +213,67 @@ class Repository(val ctx: Context) {
         val owned = byRemote.values.map { it.id }.toSet()
         val rules = misc.enabledRules(); val deleted = misc.deletedIds().toHashSet()
         var added = 0; var quiet = 0
+        // Local changes still waiting in the outbox win over server state until they are delivered.
+        val pending = settings.outbox.first().mapNotNull { it.split("|").getOrNull(1) }.toHashSet()
         for (ra in p.fetchArticles()) {
             val feed = byRemote[ra.feedRemoteId] ?: continue
             val id = FeedParser.stableId(feed.url, ra.remoteId)
             if (id in deleted) continue
             // Known under this id, or fetched directly before this feed was synced: update state only.
             val existing = articles.byId(id) ?: ra.url.takeIf { it.isNotEmpty() }?.let { articles.localByUrl(feed.id, it) }
-            if (existing != null) { articles.setRemoteState(existing.id, ra.isRead, ra.isFavorite, ra.remoteId); continue }
+            if (existing != null) { if (existing.id !in pending) articles.setRemoteState(existing.id, ra.isRead, ra.isFavorite, ra.remoteId); continue }
             val a = applyRules(ArticleEntity(id, feed.id, ra.title, ra.url, ra.content, "", ra.date, ra.author, ra.isRead, ra.isFavorite, ra.mediaUrl, remoteId = ra.remoteId), rules) ?: continue
             if (articles.insertAll(listOf(a)).firstOrNull() != -1L) { added++; if (feed.muted || "__no_notify" in a.labels.split(",")) quiet++ }
         }
         // Items read elsewhere drop out of the server's unread list; mirror that here.
-        p.unreadIds()?.let { unread -> articles.unreadRemote().filter { it.feedId in owned && it.remoteId !in unread }.map { it.id }.chunked(500).forEach { articles.markRead(it) } }
+        p.unreadIds()?.let { unread -> articles.unreadRemote().filter { it.feedId in owned && it.remoteId !in unread && it.id !in pending }.map { it.id }.chunked(500).forEach { articles.markRead(it) } }
+        p.nextCursor?.let { settings.setMinifluxCursor(it) }
         return Triple(remoteFeeds.size, added, quiet)
     }
     // Provider clients do blocking HTTP, so every call leaves the main thread.
     // Only articles of feeds the current provider owns; ids from an earlier provider mean nothing to this one.
     private suspend fun remoteOf(a: ArticleEntity): String? = a.remoteId?.takeIf { feeds.byId(a.feedId)?.remoteId != null }
-    suspend fun pushRead(a: ArticleEntity, read: Boolean) = withContext(Dispatchers.IO) { val id = remoteOf(a) ?: return@withContext; try { buildProvider()?.setRead(id, read) } catch (_: Exception) {} }
-    suspend fun pushFavorite(a: ArticleEntity, fav: Boolean) = withContext(Dispatchers.IO) { val id = remoteOf(a) ?: return@withContext; try { buildProvider()?.setFavorite(id, fav) } catch (_: Exception) {} }
+    // Read/favorite changes go through an outbox: sent now when online, kept and retried on every sync when not.
+    suspend fun pushRead(a: ArticleEntity, read: Boolean) = queue("R", a, read)
+    suspend fun pushFavorite(a: ArticleEntity, fav: Boolean) = queue("F", a, fav)
+    private suspend fun queue(kind: String, a: ArticleEntity, value: Boolean) = withContext(Dispatchers.IO) {
+        remoteOf(a) ?: return@withContext
+        settings.editOutbox { box -> box.filterNot { it.startsWith("$kind|${a.id}|") }.toSet() + "$kind|${a.id}|${if (value) 1 else 0}" }
+        try { flushOutbox(buildProvider() ?: return@withContext) } catch (_: Exception) {}
+    }
+    // Stops at the first failure (usually offline); entries whose article is gone are dropped.
+    private suspend fun flushOutbox(p: SyncProvider) {
+        for (entry in settings.outbox.first()) {
+            val (kind, id, value) = entry.split("|").takeIf { it.size == 3 } ?: run { settings.editOutbox { it - entry }; null } ?: continue
+            val remote = articles.byId(id)?.let { remoteOf(it) }
+            try { if (remote != null) { if (kind == "R") p.setRead(remote, value == "1") else p.setFavorite(remote, value == "1") } } catch (_: Exception) { return }
+            settings.editOutbox { it - entry }
+        }
+    }
+    suspend fun saveToIntegrations(a: ArticleEntity) = withContext(Dispatchers.IO) {
+        val id = remoteOf(a) ?: throw java.io.IOException("This article is not from your provider")
+        (buildProvider() ?: throw java.io.IOException("No provider signed in")).saveToIntegrations(id)
+    }
+    // Settings > Reading > Save full text: up to 50 unread articles from the last 7 days per refresh, newest first. Text goes into content,
+    // tagged so the reader uses it offline; failures are tagged too so they are not retried every refresh.
+    private suspend fun saveOfflineText() {
+        if (!settings.saveFullText.first()) return
+        val gate = Semaphore(4)
+        coroutineScope { articles.offlineCandidates(50, System.currentTimeMillis() - 7L * 86_400_000).filter { !it.url.contains("youtube.com") && !it.url.contains("youtu.be") }.map { a -> async { gate.withPermit {
+            val text = try { fullText(a) } catch (_: Exception) { null }
+            articles.setContent(a.id, text ?: a.content, (a.labels.split(",") + (if (text != null) OFFLINE else OFFLINE_FAILED)).filter { it.isNotBlank() }.distinct().joinToString(","))
+        } } }.awaitAll() }
+    }
+    companion object { const val OFFLINE = "__fulltext"; const val OFFLINE_FAILED = "__fulltext_none"
+        // HTTP charset first, then the XML declaration (<?xml encoding="ISO-8859-1"?>), then UTF-8.
+        fun decode(bytes: ByteArray, header: java.nio.charset.Charset?): String {
+            val declared = Regex("""^\s*<\?xml[^>]*encoding\s*=\s*["']([\w.:-]+)["']""").find(String(bytes, 0, minOf(bytes.size, 200), Charsets.ISO_8859_1))?.groupValues?.get(1)
+            val cs = header ?: declared?.let { runCatching { java.nio.charset.Charset.forName(it) }.getOrNull() } ?: Charsets.UTF_8
+            return String(bytes, cs).removePrefix("﻿")
+        }
+        @Volatile private var instance: Pair<AppDatabase, OkHttpClient>? = null
+        private fun shared(ctx: Context) = instance ?: synchronized(this) { instance ?: Pair(
+            Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "blindrss.db").fallbackToDestructiveMigration().build(),
+            OkHttpClient.Builder().cache(Cache(java.io.File(ctx.applicationContext.cacheDir, "http"), 50L * 1024 * 1024)).build()).also { instance = it } }
+    }
 }
