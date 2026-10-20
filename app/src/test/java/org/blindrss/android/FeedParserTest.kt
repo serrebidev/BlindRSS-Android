@@ -20,6 +20,21 @@ class FeedParserTest {
     @Test fun discovery() { assertEquals("https://www.youtube.com/feeds/videos.xml?channel_id=UCabc", FeedDiscovery.normalizeInput("https://youtube.com/channel/UCabc")); assertTrue(FeedDiscovery.normalizeInput("https://reddit.com/r/kotlin").endsWith("/.rss"))
         val links = FeedDiscovery.findFeedLinks("""<link rel="alternate" type="application/rss+xml" href="/feed.xml"/>""", "https://e.com/blog"); assertEquals(listOf("https://e.com/feed.xml"), links) }
     @Test fun fullText() { val out = FullText.extract("<html><body><nav>x</nav><article><h1>T</h1><p>${"word ".repeat(20)}</p></article></body></html>"); assertTrue(out.contains("word")) }
+    @Test fun fullTextWordPressNews() {
+        // Mirrors mapleridgenews.com: no <article>/<main>, nav text in giant
+        // link-heavy paragraphs, real story in a plain div further down.
+        val navLinks = (1..30).joinToString(" ") { "<a href=\"/n$it\">Section $it news</a>" }
+        val story = listOf(
+            "Police officers arrived on scene and observed the bird, later determined to be an adult male red-tailed hawk, suffering an apparent broken wing near the road.",
+            "The Mounties determined to save the raptor, relying on their limited birds of prey expertise, officers carefully captured the hawk and kept it calm.",
+            "A pet ambulance volunteer was notified, and soon arrived on scene to transport the hawk to the wildlife rehabilitation centre for treatment and care.").joinToString("") { "<p>$it</p>" }
+        val html = "<html><body><div class=\"site-wrap\"><div class=\"nav-menu\"><p>$navLinks Navigation menu with every section listed for browsing the whole site today.</p></div>" +
+            "<div class=\"post-wrap\"><h1>Hawk rescued</h1>$story</div><div class=\"footer-links\"><p><a href=\"/about\">About us</a> <a href=\"/contact\">Contact the newsroom</a></p></div></div></body></html>"
+        val out = FullText.toPlain(FullText.extract(html))
+        assertTrue(out.contains("adult male red-tailed hawk"))
+        assertTrue(out.contains("wildlife rehabilitation centre"))
+        assertFalse(out.contains("Navigation menu with every section"))
+    }
     @Test fun podcastChapters() { val f = FeedParser.parse("""<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>P</title><item><title>Ep1</title><link>https://e.com/ep1</link><guid>ep1</guid><enclosure url="https://e.com/ep1.mp3" type="audio/mpeg"/><podcast:chapters url="https://e.com/ep1-chapters.json" type="application/json+chapters"/></item></channel></rss>""", "https://e.com/feed")
         assertEquals("https://e.com/ep1-chapters.json", f.articles[0].chaptersUrl)
         val ch = PodcastChapters.parse("""{"version":"1.2.0","chapters":[{"startTime":0,"title":"Intro"},{"startTime":95.5,"title":"Main"}]}""")

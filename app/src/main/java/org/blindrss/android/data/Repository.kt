@@ -67,7 +67,23 @@ class Repository(val ctx: Context) {
     suspend fun restoreDeleted(id: String) { val d = misc.deletedById(id) ?: return; articles.insertAll(listOf(ArticleEntity(d.id, d.feedId, d.title, d.url, d.content, d.description, d.date, d.author, d.isRead, d.isFavorite, d.mediaUrl, d.mediaType))); misc.purgeDeleted(id) }
     suspend fun importOpml(xml: String): Int { var n = 0; for (e in Opml.parse(xml)) { try { addFeed(e.xmlUrl, e.category); n++ } catch (_: Exception) {} }; return n }
     suspend fun exportOpml(): String { val list = feeds.all().map { it.title to (it.url to it.category) }; return Opml.write(list) }
-    suspend fun fullText(a: ArticleEntity): String { val html = fetchText(a.url); return FullText.extract(html) }
+    suspend fun fullText(a: ArticleEntity): String {
+        // Miniflux can extract server-side; prefer it for Miniflux-synced articles.
+        val p = try { buildProvider() } catch (_: Exception) { null }
+        if (p is MinifluxProvider && a.remoteId != null) {
+            try { val c = p.fetchFullContent(a.remoteId); if (FullText.plainLength(c) >= 200) return c } catch (_: Exception) {}
+        }
+        val html = fetchArticleHtml(a.url)
+        val extracted = FullText.extract(html)
+        if (FullText.plainLength(extracted) < 200) throw java.io.IOException("Could not extract article text from this page")
+        return extracted
+    }
+    private suspend fun fetchArticleHtml(url: String): String = withContext(Dispatchers.IO) {
+        http.newCall(Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-X820) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml").build()).execute().use { r ->
+            if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url"); r.body?.string() ?: "" }
+    }
     suspend fun ensureChapters(a: ArticleEntity): List<ChapterEntity> {
         val existing = misc.chapters(a.id); if (existing.isNotEmpty()) return existing
         val url = a.chaptersUrl ?: return emptyList()

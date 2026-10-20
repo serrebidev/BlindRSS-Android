@@ -56,6 +56,12 @@ class SettingsStore(private val ctx: Context) {
     suspend fun saveAccount(t: ProviderType, a: Account) { ctx.ds.edit { it[acctKey(t, "url")] = a.url.trimEnd('/'); it[acctKey(t, "user")] = a.user
         it[acctKey(t, "secret")] = if (a.secret.isEmpty()) "" else encrypt(a.secret); it[acctKey(t, "appid")] = a.appId; it[acctKey(t, "appkey")] = a.appKey
         it[acctKey(t, "refresh")] = if (a.refresh.isEmpty()) "" else encrypt(a.refresh) } }
+    // How articles open on tap. Browser is the default.
+    val articleOpenMode: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("article_open_mode")] ?: "BROWSER" }
+    suspend fun setArticleOpenMode(v: String) { ctx.ds.edit { it[stringPreferencesKey("article_open_mode")] = v } }
+    // Where YouTube links open: YOUTUBE_APP, SMARTTUBE, BROWSER, IN_APP.
+    val youtubeOpenMode: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("youtube_open_mode")] ?: "YOUTUBE_APP" }
+    suspend fun setYoutubeOpenMode(v: String) { ctx.ds.edit { it[stringPreferencesKey("youtube_open_mode")] = v } }
     val skipSilence: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("skip_silence")] ?: true }
     val sponsorBlock: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("sponsorblock")] ?: true }
     val eqEnabled: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("eq_enabled")] ?: false }

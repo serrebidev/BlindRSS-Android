@@ -40,7 +40,7 @@ fun LiveAnnouncer(vm: AppViewModel) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, vm: AppViewModel) {
+fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, onReadInApp: () -> Unit = onOpen, vm: AppViewModel) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     val feedTitle = feeds.firstOrNull { it.id == a.feedId }?.title ?: ""
@@ -54,6 +54,8 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, vm
                 CustomAccessibilityAction(if (a.isRead) "Mark unread" else "Mark read") { vm.setRead(a, !a.isRead); true },
                 CustomAccessibilityAction(if (a.isFavorite) "Remove favorite" else "Add favorite") { vm.toggleFavorite(a); true },
                 CustomAccessibilityAction("Download episode") { vm.download(a); true },
+                CustomAccessibilityAction("Open externally") { vm.openInBrowser(ctx, a); true },
+                CustomAccessibilityAction("Read in app") { onReadInApp(); true },
                 CustomAccessibilityAction("Share") { shareText(ctx, a.title, a.url); true },
                 CustomAccessibilityAction("Play") { vm.play(a); true },
                 CustomAccessibilityAction("Delete") { vm.deleteArticle(a); true }
@@ -73,6 +75,8 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, vm
                 DropdownMenuItem({ Text("Play") }, { menu = false; vm.play(a) })
                 DropdownMenuItem({ Text("Download episode") }, { menu = false; vm.download(a) })
             }
+            DropdownMenuItem({ Text("Open externally") }, { menu = false; vm.openInBrowser(ctx, a) })
+            DropdownMenuItem({ Text("Read in app") }, { menu = false; onReadInApp() })
             DropdownMenuItem({ Text("Share") }, { menu = false; shareText(ctx, a.title, a.url) })
             DropdownMenuItem({ Text("Delete") }, { menu = false; vm.deleteArticle(a) })
         }
@@ -81,8 +85,9 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, vm
 
 @Composable
 fun ArticleList(articles: List<ArticleEntity>, feeds: List<FeedEntity>, nav: NavController, vm: AppViewModel, emptyText: String) {
+    val ctx = LocalContext.current
     if (articles.isEmpty()) { Text(emptyText, Modifier.padding(16.dp).semantics { contentDescription = emptyText }); return }
-    LazyColumn { items(articles, key = { it.id }) { a -> ArticleRow(a, feeds, { nav.navigate("reader/${Uri.encode(a.id)}") }, vm) } }
+    LazyColumn { items(articles, key = { it.id }) { a -> ArticleRow(a, feeds, onOpen = { vm.openArticle(ctx, a, nav) }, onReadInApp = { nav.navigate("reader/${Uri.encode(a.id)}") }, vm = vm) } }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -179,19 +184,20 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
     Scaffold(topBar = { TopAppBar(title = { Text("Article", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = {
         article?.let { a ->
             IconButton(onClick = { shareText(ctx, a.title, a.url) }, Modifier.semantics { contentDescription = "Share article" }) { Icon(Icons.Filled.Share, null) }
-            IconButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(a.url))) }, Modifier.semantics { contentDescription = "Open original article in browser" }) { Icon(Icons.Filled.OpenInBrowser, null) }
+            IconButton(onClick = { vm.openInBrowser(ctx, a) }, Modifier.semantics { contentDescription = "Open original article externally" }) { Icon(Icons.Filled.OpenInBrowser, null) }
         }
     }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) {
             LiveAnnouncer(vm)
             val a = article
             if (a == null) { Text("Loading article") } else {
-                LaunchedEffect(a.id) { if (!a.isRead) vm.setRead(a, true) }
+                LaunchedEffect(a.id) { if (!a.isRead) vm.setRead(a, true)
+                    if (vm.repo.settings.articleOpenMode.first() == "FULL_TEXT" && fullText == null) { loadingFull = true; vm.loadFullText(a) { t -> if (t != null && stripHtml(t).length > stripHtml(a.content.ifBlank { a.description }).length) fullText = t; loadingFull = false } } }
                 LazyColumn {
                     item { Text(a.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() }); Text(DateFormat.getDateTimeInstance().format(Date(a.date)), style = MaterialTheme.typography.labelMedium); if (a.author.isNotBlank()) Text("By ${a.author}", style = MaterialTheme.typography.labelMedium) }
                     item { Row { Button(onClick = { vm.toggleFavorite(a) }, Modifier.semantics { contentDescription = if (a.isFavorite) "Remove favorite" else "Add favorite" }) { Text(if (a.isFavorite) "Unfavorite" else "Favorite") }; Spacer(Modifier.width(8.dp)); Button(onClick = { vm.setRead(a, !a.isRead) }, Modifier.semantics { contentDescription = if (a.isRead) "Mark unread" else "Mark read" }) { Text(if (a.isRead) "Mark unread" else "Mark read") }; if (a.mediaUrl != null) { Spacer(Modifier.width(8.dp)); Button(onClick = { vm.play(a); nav.navigate("player") }, Modifier.semantics { contentDescription = "Play media" }) { Text("Play") } } } }
-                    item { Button(onClick = { loadingFull = true; vm.loadFullText(a) { fullText = it; loadingFull = false } }, Modifier.semantics { contentDescription = "Fetch full article text" }) { Text(if (loadingFull) "Fetching full text..." else "Fetch full text") } }
-                    item { val body = fullText ?: a.content.ifBlank { a.description }; Text(stripHtml(body), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.semantics { contentDescription = "Article body" }) }
+                    item { Button(onClick = { loadingFull = true; vm.loadFullText(a) { t -> if (t != null && stripHtml(t).length > stripHtml(a.content.ifBlank { a.description }).length) fullText = t else if (t != null) fullText = t; loadingFull = false } }, Modifier.semantics { contentDescription = "Fetch full article text" }) { Text(if (loadingFull) "Fetching full text..." else if (fullText != null) "Full text shown. Fetch again" else "Fetch full text") } }
+                    item { val body = fullText ?: a.content.ifBlank { a.description }; Text(stripHtml(body).ifBlank { "No article text available. Use Open externally to read in your browser." }, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.semantics { contentDescription = "Article body" }) }
                 }
             }
         }
@@ -437,6 +443,16 @@ fun SettingsScreen(nav: NavController, vm: AppViewModel) {
                     Button(onClick = { scope.launch { status = "Testing..."; try { val p = vm.repo.buildProvider(); status = p?.testLogin() ?: "Local mode" } catch (e: Exception) { status = "Login failed: ${e.message}" } } }, Modifier.fillMaxWidth().semantics { contentDescription = "Test login" }) { Text("Test login") }
                     Button(onClick = { scope.launch { status = "Syncing..."; try { status = vm.repo.syncProvider() } catch (e: Exception) { status = "Sync failed: ${e.message}" } } }, Modifier.fillMaxWidth().semantics { contentDescription = "Sync now with provider" }) { Text("Sync now") } }
             }
+            item { Text("Reading", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+                var openMode by remember { mutableStateOf("BROWSER") }; var ytMode by remember { mutableStateOf("YOUTUBE_APP") }
+                LaunchedEffect(Unit) { openMode = vm.repo.settings.articleOpenMode.first(); ytMode = vm.repo.settings.youtubeOpenMode.first() }
+                Text("When I open an article", style = MaterialTheme.typography.bodyMedium)
+                listOf("BROWSER" to "Open in default browser", "FULL_TEXT" to "Read full text in app", "FEED_TEXT" to "Read feed text in app").forEach { (v, l) ->
+                    Row(Modifier.clickable { openMode = v; scope.launch { vm.repo.settings.setArticleOpenMode(v) } }.semantics { contentDescription = "Article opens: $l"; role = Role.RadioButton; selected = openMode == v }) { RadioButton(openMode == v, { openMode = v; scope.launch { vm.repo.settings.setArticleOpenMode(v) } }, Modifier.semantics { contentDescription = "Select: $l" }); Text(l) } }
+                Text("When I open a YouTube video", style = MaterialTheme.typography.bodyMedium)
+                listOf("YOUTUBE_APP" to "YouTube app", "SMARTTUBE" to "SmartTube", "BROWSER" to "Browser", "IN_APP" to "Read or play in app").forEach { (v, l) ->
+                    Row(Modifier.clickable { ytMode = v; scope.launch { vm.repo.settings.setYoutubeOpenMode(v) } }.semantics { contentDescription = "YouTube opens in: $l"; role = Role.RadioButton; selected = ytMode == v }) { RadioButton(ytMode == v, { ytMode = v; scope.launch { vm.repo.settings.setYoutubeOpenMode(v) } }, Modifier.semantics { contentDescription = "Select: $l" }); Text(l) } }
+                Text("If the chosen video app is not installed, BlindRSS opens your browser instead.", style = MaterialTheme.typography.bodySmall) }
             item { Text("Background sync", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 Row { listOf(15, 30, 60, 240).forEach { m -> FilterChip(syncInterval == m, { syncInterval = m; scope.launch { vm.repo.settings.setSyncInterval(m); org.blindrss.android.sync.SyncWorker.schedule(nav.context, m) } }, { Text("$m min") }, modifier = Modifier.semantics { contentDescription = "Sync every $m minutes" }) } }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Notify on new articles"); Switch(notify, { notify = it; scope.launch { vm.repo.settings.setNotify(it) } }, Modifier.semantics { contentDescription = "Notify on new articles switch" }) } }

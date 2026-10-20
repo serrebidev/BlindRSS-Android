@@ -35,7 +35,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun importOpml(xml: String) { viewModelScope.launch { val n = repo.importOpml(xml); announce("Imported $n feeds from OPML") } }
     fun play(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: a.url; player.loadSponsorBlock(a.url); player.play(a.id, url, a.title); announce("Playing: ${a.title}") } }
     fun download(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: return@launch announce("No media to download"); try { Downloader.downloadEpisode(getApplication(), repo, a.id, url); announce("Downloaded episode: ${a.title}") } catch (e: Exception) { announce("Download failed: ${e.message}") } } }
-    fun loadFullText(a: ArticleEntity, cb: (String) -> Unit) { viewModelScope.launch { try { cb(repo.fullText(a)) } catch (e: Exception) { announce("Full text failed: ${e.message}"); cb("") } } }
+    fun loadFullText(a: ArticleEntity, cb: (String?) -> Unit) { viewModelScope.launch { try { val t = repo.fullText(a); announce("Full text loaded"); cb(t) } catch (e: Exception) { announce("Full text unavailable. Showing feed text. ${e.message}"); cb(null) } } }
+    fun isYouTube(url: String): Boolean = Regex("youtube\\.com|youtu\\.be", RegexOption.IGNORE_CASE).containsMatchIn(url)
+    // Single entry point for opening an article, honoring the open-mode settings.
+    fun openArticle(ctx: android.content.Context, a: ArticleEntity, nav: androidx.navigation.NavController) {
+        viewModelScope.launch {
+            if (!a.isRead) { repo.articles.setRead(a.id, true); repo.pushRead(a, true) }
+            if (isYouTube(a.url)) {
+                when (repo.settings.youtubeOpenMode.first()) {
+                    "SMARTTUBE" -> { if (!launchPackage(ctx, a.url, listOf("org.smarttube.stable", "org.smarttube.beta", "com.liskovsoft.smarttubetv", "com.tehmazmaz.smarttubenext"))) { announce("SmartTube is not installed. Opening in browser."); launchBrowser(ctx, a.url) } }
+                    "BROWSER" -> launchBrowser(ctx, a.url)
+                    "IN_APP" -> nav.navigate("reader/${android.net.Uri.encode(a.id)}")
+                    else -> { if (!launchPackage(ctx, a.url, listOf("com.google.android.youtube"))) launchBrowser(ctx, a.url) }
+                }
+                return@launch
+            }
+            when (repo.settings.articleOpenMode.first()) {
+                "FULL_TEXT", "FEED_TEXT" -> nav.navigate("reader/${android.net.Uri.encode(a.id)}")
+                else -> launchBrowser(ctx, a.url)
+            }
+        }
+    }
+    fun launchBrowser(ctx: android.content.Context, url: String) { try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) { announce("No browser found") } }
+    private fun launchPackage(ctx: android.content.Context, url: String, packages: List<String>): Boolean {
+        for (pkg in packages) { try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage(pkg).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)); return true } catch (_: Exception) {} }
+        return false
+    }
+    fun openInBrowser(ctx: android.content.Context, a: ArticleEntity) { if (isYouTube(a.url)) openExternalVideo(ctx, a) else launchBrowser(ctx, a.url) }
+    private fun openExternalVideo(ctx: android.content.Context, a: ArticleEntity) { viewModelScope.launch {
+        when (repo.settings.youtubeOpenMode.first()) {
+            "SMARTTUBE" -> if (!launchPackage(ctx, a.url, listOf("org.smarttube.stable", "org.smarttube.beta", "com.liskovsoft.smarttubetv"))) launchBrowser(ctx, a.url)
+            "BROWSER", "IN_APP" -> launchBrowser(ctx, a.url)
+            else -> if (!launchPackage(ctx, a.url, listOf("com.google.android.youtube"))) launchBrowser(ctx, a.url)
+        } } }
     fun exchangeOAuth(code: String) { viewModelScope.launch { try { announce(repo.exchangeInoreaderCode(code)); val s = repo.syncProvider(); announce(s) } catch (e: Exception) { announce("Inoreader connect failed: ${e.message}") } } }
     val castDevices = MutableStateFlow<List<org.blindrss.android.cast.DlnaDevice>>(emptyList())
     var castTarget: org.blindrss.android.cast.DlnaDevice? = null

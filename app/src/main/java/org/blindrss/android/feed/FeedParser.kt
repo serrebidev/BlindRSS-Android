@@ -156,23 +156,59 @@ object PodcastChapters {
 }
 
 object FullText {
+    // Readability-style extraction: score containers by real paragraph text,
+    // penalize link-heavy boilerplate, then emit headings/paragraphs in order.
     fun extract(html: String): String {
-        var h = html
-        h = Regex("<script[\\s\\S]*?</script>", RegexOption.IGNORE_CASE).replace(h, "")
-        h = Regex("<style[\\s\\S]*?</style>", RegexOption.IGNORE_CASE).replace(h, "")
-        h = Regex("<nav[\\s\\S]*?</nav>", RegexOption.IGNORE_CASE).replace(h, "")
-        h = Regex("<header[\\s\\S]*?</header>", RegexOption.IGNORE_CASE).replace(h, "")
-        h = Regex("<footer[\\s\\S]*?</footer>", RegexOption.IGNORE_CASE).replace(h, "")
-        val article = Regex("<article[\\s\\S]*?</article>", RegexOption.IGNORE_CASE).find(h)?.value
-        val main = Regex("<main[\\s\\S]*?</main>", RegexOption.IGNORE_CASE).find(h)?.value
-        val body = article ?: main ?: h
-        val paras = Regex("<p[^>]*>([\\s\\S]*?)</p>", RegexOption.IGNORE_CASE).findAll(body).map { strip(it.groupValues[1]) }.filter { it.length > 40 }.toList()
-        val heads = Regex("<h[12][^>]*>([\\s\\S]*?)</h[12]>", RegexOption.IGNORE_CASE).findAll(body).map { strip(it.groupValues[1]) }.filter { it.isNotBlank() }.toList()
+        val doc = org.jsoup.Jsoup.parse(html)
+        doc.select("script, style, nav, header, footer, aside, form, iframe, noscript, button, select, textarea").remove()
+        val candidates = doc.select("article, main, div, section")
+        val scores = mutableMapOf<org.jsoup.nodes.Element, Double>()
+        for (c in candidates) {
+            val paras = c.select("p")
+            if (paras.isEmpty()) continue
+            var score = 0.0; var textLen = 0
+            for (p in paras) { val t = p.text().trim(); if (t.length >= 40) { score += t.length + t.count { it == ',' } * 10.0; textLen += t.length } }
+            if (textLen == 0) continue
+            val linkText = c.select("a").sumOf { it.text().length }
+            val density = linkText.toDouble() / maxOf(1, c.text().length)
+            score *= (1.0 - density)
+            val cls = (c.className() + " " + c.id()).lowercase()
+            if (Regex("article|entry|post|story|content|main|text").containsMatchIn(cls)) score *= 1.5
+            if (Regex("nav|menu|sidebar|footer|header|promo|related|comment|share|social|advert|cookie|popup").containsMatchIn(cls)) score *= 0.25
+            scores[c] = score
+        }
+        var best: org.jsoup.nodes.Element? = null; var bestScore = -1.0
+        for ((c, s) in scores) if (s > bestScore) { bestScore = s; best = c }
+        // Prefer the tightest inner container that holds most of the winning text.
+        if (best != null) {
+            val inner = scores.entries.filter { (c, s) -> c != best && s >= bestScore * 0.5 && c.parents().contains(best) }
+                .minByOrNull { it.key.text().length }
+            if (inner != null) best = inner.key
+        }
+        val root: org.jsoup.nodes.Element = best ?: doc.body()
+        val blocks = mutableListOf<Pair<String, String>>()
+        for (el in root.select("h1, h2, h3, p, li")) {
+            val t = el.text().trim()
+            if (el.tagName() == "p" && t.length < 25) continue
+            if (el.tagName() == "li" && t.length < 20) continue
+            if (t.isBlank()) continue
+            // Drop boilerplate lines that survive in scored containers.
+            if (Regex("outdated browser|swipe or click|sign up|subscribe to|all rights reserved|cookie", RegexOption.IGNORE_CASE).containsMatchIn(t)) continue
+            val tag = if (el.tagName().startsWith("h")) "h2" else "p"
+            if (blocks.lastOrNull()?.second != t) blocks += tag to t
+        }
+        // If the winning container still hid the text, fall back to every decent paragraph.
+        if (blocks.sumOf { it.second.length } < 200) {
+            blocks.clear()
+            for (p in doc.select("p")) { val t = p.text().trim(); if (t.length >= 80) blocks += "p" to t }
+        }
         val sb = StringBuilder()
-        heads.forEach { sb.append("<h2>").append(it).append("</h2>") }
-        paras.forEach { sb.append("<p>").append(it).append("</p>") }
-        return if (sb.isEmpty()) strip(body).let { "<p>$it</p>" } else sb.toString()
+        for ((tag, t) in blocks) sb.append("<").append(tag).append(">").append(esc(t)).append("</").append(tag).append(">")
+        return sb.toString()
     }
-    fun strip(s: String) = s.replace(Regex("<[^>]+>"), " ").replace("&nbsp;", " ").replace(Regex("\\s+"), " ").trim()
+    private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    fun plainLength(html: String) = toPlain(html).length
+    fun strip(s: String) = try { org.jsoup.Jsoup.clean(s, "", org.jsoup.safety.Safelist.none()) } catch (_: Exception) { s.replace(Regex("<[^>]+>"), " ") }
+        .replace("&nbsp;", " ").replace(Regex("\\s+"), " ").trim()
     fun toPlain(html: String) = strip(html)
 }

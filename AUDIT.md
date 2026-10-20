@@ -16,10 +16,10 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Deleted articles restore/purge | Done | `deleted_articles` tombstone, Restore + DeleteForever + purge all |
 | Feeds-with-errors view | Done | `feeds.lastError`, `observeErrors()`, retry action |
 | Filter rules | Done | Arrival pipeline in `Repository.saveArticles`: mark_read, mark_favorite, delete, move (folder override), label (extra category membership), skip_notification; browse via Categories and Labels |
-| Full-text extraction | Done | `FullText.extract` Readability-style article/main extraction, stripped scripts/nav |
+| Full-text extraction | Done | `FullText.extract` Readability-style scored extraction (jsoup, link-density penalty, tightest-container pick, boilerplate drop); browser user-agent; Miniflux server fetch-content preferred when available; verified on mapleridgenews.com (WordPress, no <article> tag) |
 | Search | Done | Room LIKE over title/content/description |
 | Mark read/unread, mark all read | Done | Row actions, custom accessibility actions, provider push-back |
-| Article reader HTML | Done | Plain-text rendering of stripped HTML, Fetch full text, share, open in browser |
+| Article reader HTML | Done | Plain-text rendering, Fetch full text (never blanks: keeps feed text on failure and only swaps in longer text), share, open externally. Opening articles is configurable: browser (default), full text in app, feed text in app; YouTube opens in YouTube app / SmartTube / browser / in app (Settings > Reading) |
 | Podcast/video playback | Done | Media3 ExoPlayer, `PlaybackService` MediaSession, speed 0.5–2x, seek ±10s, resume via `playback_state` |
 | Chapters | Done | `chapters` table, Player chapter list + prev/next; Podcasting 2.0 `<podcast:chapters>` JSON fetched and parsed (`PodcastChapters`, tested) |
 | Sleep timer | Done | Player 15/30/60 min |
