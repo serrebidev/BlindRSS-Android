@@ -1,0 +1,83 @@
+package org.blindrss.android.settings
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import java.security.KeyStore
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+private val Context.ds by preferencesDataStore("blindrss_settings")
+
+enum class ProviderType { LOCAL, MINIFLUX, INOREADER, THEOLDREADER, BAZQUX, GREADER, FEVER, NEWSBLUR }
+
+class SettingsStore(private val ctx: Context) {
+    companion object {
+        val PROVIDER = stringPreferencesKey("provider")
+        val SERVER_URL = stringPreferencesKey("server_url")
+        val USERNAME = stringPreferencesKey("username")
+        val SECRET = stringPreferencesKey("secret_enc")
+        val APP_ID = stringPreferencesKey("app_id")
+        val APP_KEY = stringPreferencesKey("app_key")
+        val REFRESH_TOKEN = stringPreferencesKey("refresh_token_enc")
+        val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        val SYNC_INTERVAL_MIN = intPreferencesKey("sync_interval_min")
+        val NOTIFY_NEW = booleanPreferencesKey("notify_new")
+    }
+    val provider: Flow<ProviderType> = ctx.ds.data.map { runCatching { ProviderType.valueOf(it[PROVIDER] ?: "LOCAL") }.getOrDefault(ProviderType.LOCAL) }
+    val serverUrl: Flow<String> = ctx.ds.data.map { it[SERVER_URL] ?: "" }
+    val username: Flow<String> = ctx.ds.data.map { it[USERNAME] ?: "" }
+    val playbackSpeed: Flow<Float> = ctx.ds.data.map { it[PLAYBACK_SPEED] ?: 1f }
+    val syncInterval: Flow<Int> = ctx.ds.data.map { it[SYNC_INTERVAL_MIN] ?: 60 }
+    val notifyNew: Flow<Boolean> = ctx.ds.data.map { it[NOTIFY_NEW] ?: true }
+    suspend fun secret(): String = ctx.ds.data.map { it[SECRET] ?: "" }.first().let { if (it.isEmpty()) "" else decrypt(it) }
+    suspend fun refreshToken(): String = ctx.ds.data.map { it[REFRESH_TOKEN] ?: "" }.first().let { if (it.isEmpty()) "" else decrypt(it) }
+    suspend fun appId(): String = ctx.ds.data.map { it[APP_ID] ?: "" }.first()
+    suspend fun appKey(): String = ctx.ds.data.map { it[APP_KEY] ?: "" }.first()
+    suspend fun saveProvider(p: ProviderType, url: String, user: String, secret: String, appId: String = "", appKey: String = "", refresh: String = "") {
+        ctx.ds.edit { it[PROVIDER] = p.name; it[SERVER_URL] = url.trimEnd('/'); it[USERNAME] = user; it[SECRET] = if (secret.isEmpty()) "" else encrypt(secret); it[APP_ID] = appId; it[APP_KEY] = appKey; it[REFRESH_TOKEN] = if (refresh.isEmpty()) "" else encrypt(refresh) }
+    }
+    suspend fun setSpeed(v: Float) { ctx.ds.edit { it[PLAYBACK_SPEED] = v } }
+    suspend fun setSyncInterval(v: Int) { ctx.ds.edit { it[SYNC_INTERVAL_MIN] = v } }
+    suspend fun setNotify(v: Boolean) { ctx.ds.edit { it[NOTIFY_NEW] = v } }
+    // Per-provider saved accounts, so switching providers keeps each login.
+    data class Account(val url: String = "", val user: String = "", val secret: String = "", val appId: String = "", val appKey: String = "", val refresh: String = "")
+    private fun acctKey(t: ProviderType, f: String) = stringPreferencesKey("acct_${t.name}_$f")
+    suspend fun account(t: ProviderType): Account { val p = ctx.ds.data.first()
+        fun dec(k: String): String { val v = p[acctKey(t, k)] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+        return Account(p[acctKey(t, "url")] ?: "", p[acctKey(t, "user")] ?: "", dec("secret"), p[acctKey(t, "appid")] ?: "", p[acctKey(t, "appkey")] ?: "", dec("refresh")) }
+    suspend fun saveAccount(t: ProviderType, a: Account) { ctx.ds.edit { it[acctKey(t, "url")] = a.url.trimEnd('/'); it[acctKey(t, "user")] = a.user
+        it[acctKey(t, "secret")] = if (a.secret.isEmpty()) "" else encrypt(a.secret); it[acctKey(t, "appid")] = a.appId; it[acctKey(t, "appkey")] = a.appKey
+        it[acctKey(t, "refresh")] = if (a.refresh.isEmpty()) "" else encrypt(a.refresh) } }
+    val skipSilence: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("skip_silence")] ?: true }
+    val sponsorBlock: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("sponsorblock")] ?: true }
+    val eqEnabled: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("eq_enabled")] ?: false }
+    val eqBands: Flow<List<Int>> = ctx.ds.data.map { p -> (p[stringPreferencesKey("eq_bands")] ?: "").split(",").mapNotNull { it.toIntOrNull() } }
+    suspend fun setSkipSilence(v: Boolean) { ctx.ds.edit { it[booleanPreferencesKey("skip_silence")] = v } }
+    suspend fun setSponsorBlock(v: Boolean) { ctx.ds.edit { it[booleanPreferencesKey("sponsorblock")] = v } }
+    suspend fun setEq(enabled: Boolean, bands: List<Int>) { ctx.ds.edit { it[booleanPreferencesKey("eq_enabled")] = enabled; it[stringPreferencesKey("eq_bands")] = bands.joinToString(",") } }
+    private fun key(): SecretKey {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getKey("blindrss_key", null) as? SecretKey)?.let { return it }
+        val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        gen.init(KeyGenParameterSpec.Builder("blindrss_key", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+        return gen.generateKey()
+    }
+    private fun encrypt(plain: String): String {
+        val c = Cipher.getInstance("AES/GCM/NoPadding"); c.init(Cipher.ENCRYPT_MODE, key())
+        val ct = c.doFinal(plain.toByteArray(Charsets.UTF_8))
+        return Base64.getEncoder().encodeToString(c.iv + ct)
+    }
+    private fun decrypt(b64: String): String = try {
+        val raw = Base64.getDecoder().decode(b64); val iv = raw.copyOfRange(0, 12); val ct = raw.copyOfRange(12, raw.size)
+        val c = Cipher.getInstance("AES/GCM/NoPadding"); c.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
+        String(c.doFinal(ct), Charsets.UTF_8)
+    } catch (_: Exception) { "" }
+}
