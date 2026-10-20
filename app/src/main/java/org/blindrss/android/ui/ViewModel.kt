@@ -80,7 +80,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val country = repo.settings.discoveryCountry.first(); val lang = repo.settings.discoveryLanguage.first()
         val city = repo.settings.discoveryCity.first(); val region = repo.settings.discoveryRegion.first()
         if (catalogue.isEmpty()) catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication())
-        val local = org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, "", category, if (category == "Canada" || category == "Local news") country else "", "")
+        val local = if (category == "Canada" || category == "Local news")
+            org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, "", "", country, "")
+        else org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, "", category, "", "")
         val google = org.blindrss.android.discovery.GoogleNewsUrls.sourcesFor(category, country, lang, city, region)
         setDiscoverResults(google + local) } }
     fun searchDiscover(query: String) {
