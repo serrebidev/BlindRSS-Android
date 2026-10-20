@@ -47,7 +47,9 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
     val feedTitle = feeds.firstOrNull { it.id == a.feedId }?.title ?: ""
     val dateStr = DateFormat.getDateInstance().format(Date(a.date))
     val canSave by vm.canSaveToIntegrations.collectAsState()
-    val state = buildString { if (!a.isRead) append("Unread. "); if (a.isFavorite) append("Favorite. "); if (a.mediaUrl != null) append("Has media. ") }
+    val downloaded = a.id in vm.downloadedIds.collectAsState().value
+    val playable = vm.canPlay(a)
+    val state = buildString { if (!a.isRead) append("Unread. "); if (a.isFavorite) append("Favorite. "); if (a.mediaUrl != null) append("Has media. "); if (downloaded) append("Downloaded. ") }
     // Reading order (user-configurable): title, source, info, article text, status.
     val speech = ListReading.articleSpeech(a.title, feedTitle, a.author, dateStr,
         stripHtml(a.description), stripHtml(a.content.ifBlank { a.description }),
@@ -59,15 +61,18 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
             customActions = listOf(
                 CustomAccessibilityAction(if (a.isRead) "Mark unread" else "Mark read") { vm.setRead(a, !a.isRead); true },
                 CustomAccessibilityAction(if (a.isFavorite) "Remove favorite" else "Add favorite") { vm.toggleFavorite(a); true },
-                CustomAccessibilityAction("Download episode") { vm.download(a); true },
                 CustomAccessibilityAction("Open externally") { vm.openInBrowser(ctx, a); true },
                 CustomAccessibilityAction("Read in app") { onReadInApp(); true },
                 CustomAccessibilityAction("Read aloud") { vm.readAloud(a); true },
                 CustomAccessibilityAction("Share") { shareText(ctx, a.title, a.url); true },
             ) + listOfNotNull(if (canSave && a.remoteId != null) CustomAccessibilityAction("Save to integrations") { vm.saveToIntegrations(a); true } else null) + listOf(
-                CustomAccessibilityAction("Play") { vm.play(a); true },
                 CustomAccessibilityAction("Delete") { vm.deleteArticle(a); true }
-            )
+            ) + (if (playable) listOf(
+                CustomAccessibilityAction("Play") { vm.play(a); true },
+                CustomAccessibilityAction("Play next") { vm.playNext(a); true },
+                CustomAccessibilityAction("Add to Up next") { vm.enqueue(a); true },
+                if (downloaded) CustomAccessibilityAction("Delete download") { vm.deleteDownload(a); true } else CustomAccessibilityAction("Download episode") { vm.download(a); true }
+            ) else emptyList())
         }.combinedClickable(onClick = { onOpen() }, onLongClick = { menu = true })) {
             Column(Modifier.padding(12.dp)) {
                 Text(a.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
@@ -79,9 +84,12 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem({ Text(if (a.isRead) "Mark unread" else "Mark read") }, { menu = false; vm.setRead(a, !a.isRead) })
             DropdownMenuItem({ Text(if (a.isFavorite) "Remove favorite" else "Add favorite") }, { menu = false; vm.toggleFavorite(a) })
-            if (a.mediaUrl != null) {
+            if (playable) {
                 DropdownMenuItem({ Text("Play") }, { menu = false; vm.play(a) })
-                DropdownMenuItem({ Text("Download episode") }, { menu = false; vm.download(a) })
+                DropdownMenuItem({ Text("Play next") }, { menu = false; vm.playNext(a) })
+                DropdownMenuItem({ Text("Add to Up next") }, { menu = false; vm.enqueue(a) })
+                if (downloaded) DropdownMenuItem({ Text("Delete download") }, { menu = false; vm.deleteDownload(a) })
+                else DropdownMenuItem({ Text("Download episode") }, { menu = false; vm.download(a) })
             }
             DropdownMenuItem({ Text("Open externally") }, { menu = false; vm.openInBrowser(ctx, a) })
             DropdownMenuItem({ Text("Read in app") }, { menu = false; onReadInApp() })
@@ -145,7 +153,7 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
         Column(Modifier.padding(pad)) {
             LiveAnnouncer(vm)
             Text("$unread unread articles", Modifier.padding(16.dp).semantics { contentDescription = "$unread unread articles" })
-            val views = listOf(Triple("All Articles", "articles/all", Icons.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.Filled.Label), Triple("Discover News Sources", "discover", Icons.Filled.Explore), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Downloads and Player", "player", Icons.Filled.PlayCircle))
+            val views = listOf(Triple("All Articles", "articles/all", Icons.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.Filled.Label), Triple("Discover News Sources", "discover", Icons.Filled.Explore), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Podcast Episodes", "articles/podcasts", Icons.Filled.Podcasts), Triple("Player, Up Next and Downloads", "player", Icons.Filled.PlayCircle))
             LazyColumn {
                 items(views) { (label, route, icon) ->
                     ListItem(headlineContent = { Text(label) }, leadingContent = { Icon(icon, null) }, modifier = Modifier.clickable { nav.navigate(route) }.semantics { contentDescription = "Open $label"; role = Role.Button })
@@ -165,9 +173,9 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
 @Composable
 fun ArticlesScreen(nav: NavController, vm: AppViewModel, mode: String) {
     val feeds by vm.feeds.collectAsState()
-    val flow = remember(mode) { when (mode) { "unread" -> vm.repo.articles.observeUnread(); "read" -> vm.repo.articles.observeRead(); "favorites" -> vm.repo.articles.observeFavorites(); else -> vm.repo.articles.observeAll() } }
+    val flow = remember(mode) { when (mode) { "unread" -> vm.repo.articles.observeUnread(); "read" -> vm.repo.articles.observeRead(); "favorites" -> vm.repo.articles.observeFavorites(); "podcasts" -> vm.repo.articles.observePodcasts(); else -> vm.repo.articles.observeAll() } }
     val articles by flow.collectAsState(emptyList())
-    val title = when (mode) { "unread" -> "Unread"; "read" -> "Read"; "favorites" -> "Favorites"; else -> "All Articles" }
+    val title = when (mode) { "unread" -> "Unread"; "read" -> "Read"; "favorites" -> "Favorites"; "podcasts" -> "Podcast Episodes"; else -> "All Articles" }
     Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.markAllRead() }, Modifier.semantics { contentDescription = "Mark all read" }) { Icon(Icons.Filled.DoneAll, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles. Add a feed or refresh.") }
     }
@@ -361,51 +369,6 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
             Button(onClick = { searching = true; vm.searchDirectory(dq) { hits = it; searching = false } }, Modifier.fillMaxWidth().semantics { contentDescription = "Search directories" }) { Text(if (searching) "Searching..." else "Search") }
             hits.forEach { h -> ActionListItem(h.title, "${h.source}: ${h.feedUrl}", "Podcast ${h.title} from ${h.source}. Double tap to subscribe.", onOpen = { vm.addFeed(h.feedUrl, cat) },
                 actions = listOf("Subscribe" to { vm.addFeed(h.feedUrl, cat) })) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun PlayerScreen(nav: NavController, vm: AppViewModel) {
-    val title by vm.player.title.collectAsState(); val playing by vm.player.playing.collectAsState(); val speed by vm.player.speed.collectAsState()
-    var pos by remember { mutableStateOf(0L) }; var dur by remember { mutableStateOf(0L) }
-    var sleepMin by remember { mutableStateOf(0) }
-    LaunchedEffect(playing) { while (true) { pos = vm.player.position(); dur = vm.player.duration(); kotlinx.coroutines.delay(500) } }
-    val chapters = remember { mutableStateOf(emptyList<ChapterEntity>()) }
-    LaunchedEffect(title) { chapters.value = vm.player.chapterList() }
-    Scaffold(topBar = { TopAppBar(title = { Text("Player", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { LiveAnnouncer(vm)
-            Text(if (title.isBlank()) "Nothing playing. Open an article with media and press Play." else title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading(); contentDescription = "Now playing: $title" })
-            Text("Position ${pos / 1000} seconds of ${dur / 1000} seconds", Modifier.semantics { contentDescription = "Position ${pos / 1000} of ${dur / 1000} seconds" })
-            if (dur > 0) Slider((pos.toFloat() / dur).coerceIn(0f, 1f), { vm.player.seekTo((it * dur).toLong()) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Seek slider" })
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(onClick = { vm.player.seekBy(-10000) }, Modifier.semantics { contentDescription = "Rewind 10 seconds" }) { Icon(Icons.Filled.Replay10, null) }
-                IconButton(onClick = { vm.player.toggle() }, Modifier.semantics { contentDescription = if (playing) "Pause" else "Play" }) { Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null) }
-                IconButton(onClick = { vm.player.seekBy(10000) }, Modifier.semantics { contentDescription = "Forward 10 seconds" }) { Icon(Icons.Filled.Forward10, null) }
-                IconButton(onClick = { vm.player.prevChapter() }, Modifier.semantics { contentDescription = "Previous chapter" }) { Icon(Icons.Filled.SkipPrevious, null) }
-                IconButton(onClick = { vm.player.nextChapter() }, Modifier.semantics { contentDescription = "Next chapter" }) { Icon(Icons.Filled.SkipNext, null) }
-            }
-            Text("Speed: ${speed}x", Modifier.semantics { heading() })
-            Row { listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { s -> FilterChip(speed == s, { vm.player.setSpeed(s); kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.settings.setSpeed(s) } }, { Text("${s}x") }, modifier = Modifier.semantics { contentDescription = "Playback speed ${s}x" }) } }
-            Text("Sleep timer", Modifier.semantics { heading() })
-            Row { listOf(0, 15, 30, 60).forEach { m -> FilterChip(sleepMin == m, { sleepMin = m; vm.player.setSleepTimer(m) }, { Text(if (m == 0) "Off" else "$m min") }, modifier = Modifier.semantics { contentDescription = if (m == 0) "Sleep timer off" else "Sleep timer $m minutes" }) } }
-            var silence by remember { mutableStateOf(true) }; var sponsor by remember { mutableStateOf(true) }
-            LaunchedEffect(Unit) { silence = vm.repo.settings.skipSilence.first(); sponsor = vm.repo.settings.sponsorBlock.first() }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Skip silence"); Switch(silence, { silence = it; vm.player.setSkipSilence(it) }, Modifier.semantics { contentDescription = "Skip silence switch" }) }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("SponsorBlock (YouTube)"); Switch(sponsor, { sponsor = it; kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.settings.setSponsorBlock(it) } }, Modifier.semantics { contentDescription = "SponsorBlock switch" }) }
-            Text("Equalizer", Modifier.semantics { heading() })
-            var eqOn by remember { mutableStateOf(false) }; var bands by remember { mutableStateOf(List(5) { 0 }) }
-            LaunchedEffect(Unit) { eqOn = vm.repo.settings.eqEnabled.first(); val saved = vm.repo.settings.eqBands.first(); if (saved.isNotEmpty()) bands = (saved + List(5) { 0 }).take(5) }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Equalizer on"); Switch(eqOn, { eqOn = it; vm.player.applyEqualizer(it, bands.map { b -> b * 15 }) }, Modifier.semantics { contentDescription = "Equalizer on switch" }) }
-            bands.forEachIndexed { i, v -> Text("Band ${i + 1}: $v"); Slider(v.toFloat(), { nv -> bands = bands.toMutableList().also { it[i] = nv.toInt() }; vm.player.applyEqualizer(eqOn, bands.map { b -> b * 15 }) }, valueRange = -100f..100f, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Equalizer band ${i + 1}" }) }
-            Text("Cast to DLNA / UPnP", Modifier.semantics { heading() })
-            val castCtx = LocalContext.current
-            val devices by vm.castDevices.collectAsState()
-            Button(onClick = { vm.discoverCast(castCtx) }, Modifier.fillMaxWidth().semantics { contentDescription = "Search for DLNA cast devices" }) { Text("Search for DLNA devices") }
-            devices.forEach { d -> ListItem(headlineContent = { Text(d.name) }, modifier = Modifier.clickable { vm.castCurrent(d) }.semantics { contentDescription = "Cast current media to ${d.name}"; role = Role.Button }) }
-            val ch = chapters.value
-            if (ch.isNotEmpty()) { Text("Chapters", Modifier.semantics { heading() }); ch.forEachIndexed { i, c -> ListItem(headlineContent = { Text(c.title) }, supportingContent = { Text("${c.startMs / 1000} seconds") }, modifier = Modifier.clickable { vm.player.seekChapter(i) }.semantics { contentDescription = "Chapter ${c.title} at ${c.startMs / 1000} seconds"; role = Role.Button }) } }
         }
     }
 }

@@ -11,14 +11,16 @@ android {
         applicationId = "org.blindrss.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.6.0"
+        versionCode = 11
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes { release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    // yt-dlp's Python, FFmpeg and QuickJS run as executables from the native library folder, so it must be extracted.
+    packaging { jniLibs { useLegacyPackaging = true; keepDebugSymbols += "**/*.zip.so" } } // the .zip.so files are archives, not ELF
 }
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
@@ -41,6 +43,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jsoup:jsoup:1.18.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation(project(":ytdl"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // real org.json; android.jar ships stubs
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

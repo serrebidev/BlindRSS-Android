@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM articles WHERE isRead = 0 ORDER BY date DESC") fun observeUnread(): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE isRead = 1 ORDER BY date DESC") fun observeRead(): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE isFavorite = 1 ORDER BY date DESC") fun observeFavorites(): Flow<List<ArticleEntity>>
+    @Query("SELECT * FROM articles WHERE mediaUrl IS NOT NULL ORDER BY date DESC") fun observePodcasts(): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE feedId = :feedId ORDER BY date DESC") fun observeByFeed(feedId: Long): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE title LIKE '%' || :q || '%' OR content LIKE '%' || :q || '%' OR description LIKE '%' || :q || '%' ORDER BY date DESC") fun search(q: String): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE id = :id") fun observeById(id: String): Flow<ArticleEntity?>
@@ -67,6 +68,9 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM playback_state WHERE articleId = :id") suspend fun playback(id: String): PlaybackStateEntity?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDownload(d: DownloadEntity)
     @Query("SELECT * FROM downloads WHERE articleId = :id") suspend fun download(id: String): DownloadEntity?
+    @Query("DELETE FROM downloads WHERE articleId = :id") suspend fun deleteDownload(id: String)
+    @Query("SELECT articles.* FROM articles INNER JOIN downloads ON downloads.articleId = articles.id ORDER BY downloads.downloadedAt DESC") fun observeDownloaded(): Flow<List<ArticleEntity>>
+    @Query("SELECT articleId FROM downloads") fun observeDownloadIds(): Flow<List<String>>
 }
 @Database(entities = [FeedEntity::class, ArticleEntity::class, ChapterEntity::class, DeletedArticleEntity::class, CategoryEntity::class, SmartFolderEntity::class, FilterRuleEntity::class, DownloadEntity::class, PlaybackStateEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {

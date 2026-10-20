@@ -1,0 +1,3 @@
+[submodule "third_party/youtubedl-kotlin"]
+	path = third_party/youtubedl-kotlin
+	url = https://github.com/Darkstar085/youtubedl-kotlin

@@ -17,6 +17,11 @@
                 <data android:scheme="blindrss" android:host="oauth" />
             </intent-filter>
         </activity>
-        <service android:name=".playback.PlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".playback.PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+            <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
+        </service>
+        <receiver android:name=".playback.DownloadDoneReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE" /></intent-filter>
+        </receiver>
     </application>
 </manifest>

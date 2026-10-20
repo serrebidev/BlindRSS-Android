@@ -33,6 +33,8 @@ class MainActivity : ComponentActivity() {
                 Surface {
                     val vm: AppViewModel = viewModel()
                     val nav = rememberNavController()
+                    androidx.compose.foundation.layout.Column {
+                    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) {
                     NavHost(nav, startDestination = "home") {
                         composable("home") { HomeScreen(nav, vm) }
                         composable("articles/{mode}", listOf(navArgument("mode") { type = NavType.StringType })) { ArticlesScreen(nav, vm, it.arguments?.getString("mode") ?: "all") }
@@ -51,6 +53,9 @@ class MainActivity : ComponentActivity() {
                         composable("categories") { CategoriesScreen(nav, vm) }
                         composable("discover") { DiscoverScreen(nav, vm) }
                         composable("categories/{name}", listOf(navArgument("name") { type = NavType.StringType })) { CategoryArticlesScreen(nav, vm, it.arguments?.getString("name") ?: "") }
+                    }
+                    }
+                    MiniPlayer(nav, vm)
                     }
                 }
             }

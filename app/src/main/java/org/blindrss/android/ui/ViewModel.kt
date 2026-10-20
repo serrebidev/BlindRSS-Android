@@ -5,14 +5,15 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import org.blindrss.android.data.*
-import org.blindrss.android.playback.Downloader
+import org.blindrss.android.playback.Downloads
+import org.blindrss.android.playback.Ytdl
 import org.blindrss.android.playback.PlayerController
 import org.blindrss.android.settings.ProviderType
 import org.blindrss.android.sync.SyncWorker
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val repo = Repository(app)
-    val player = PlayerController(app, repo)
+    val player = PlayerController.get(app)
     private val reader = org.blindrss.android.playback.ReadAloud(app, repo, player) { announce(it) }
     fun readAloud(a: ArticleEntity) { announce("Preparing speech"); reader.start(a) }
     val announcements = MutableStateFlow("")
@@ -44,8 +45,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun markAllRead() { viewModelScope.launch { repo.markAllRead(); announce("All articles marked read") } }
     fun markFeedRead(f: FeedEntity) { viewModelScope.launch { repo.markFeedRead(f); announce("Marked all read in ${f.title}") } }
     fun importOpml(xml: String) { viewModelScope.launch { val n = repo.importOpml(xml); announce("Imported $n feeds from OPML") } }
-    fun play(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: a.url; player.loadSponsorBlock(a.url); player.play(a.id, url, a.title); announce("Playing: ${a.title}") } }
-    fun download(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: return@launch announce("No media to download"); try { Downloader.downloadEpisode(getApplication(), repo, a.id, url); announce("Downloaded episode: ${a.title}") } catch (e: Exception) { announce("Download failed: ${e.message}") } } }
+    // Episodes, and pages yt-dlp can play (YouTube and similar) on supported devices.
+    fun canPlay(a: ArticleEntity) = a.mediaUrl != null || (isYouTube(a.url) && Ytdl.supported())
+    fun play(a: ArticleEntity) { viewModelScope.launch { player.play(a); announce(if (a.mediaUrl == null) "Loading audio: ${a.title}" else "Playing: ${a.title}") } }
+    fun playNext(a: ArticleEntity) { viewModelScope.launch { player.playNext(a); announce("Playing next: ${a.title}") } }
+    fun enqueue(a: ArticleEntity) { viewModelScope.launch { player.enqueue(a); announce("Added to Up next: ${a.title}") } }
+    fun deleteDownload(a: ArticleEntity) { viewModelScope.launch { Downloads.delete(repo, a.id); announce("Download deleted: ${a.title}") } }
+    val downloadedIds: StateFlow<Set<String>> = repo.misc.observeDownloadIds().map { it.toSet() }.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+    fun updateYtdl(cb: (String) -> Unit) { viewModelScope.launch { cb(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { Ytdl.updateNow(getApplication()) } catch (e: Exception) { "yt-dlp: ${e.message}" } }) } }
+    fun ytdlVersion(cb: (String) -> Unit) { viewModelScope.launch { cb(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { Ytdl.version(getApplication()) } catch (e: Exception) { "unknown" } }) } }
+    fun download(a: ArticleEntity) { viewModelScope.launch { try { Downloads.enqueue(getApplication(), a); announce("Downloading: ${a.title}. Progress is in the notification.") } catch (e: Exception) { announce("Download failed: ${e.message}") } } }
     fun loadFullText(a: ArticleEntity, cb: (String?) -> Unit) { viewModelScope.launch { try { val t = repo.fullText(a); announce("Full text loaded"); cb(t) } catch (e: Exception) { announce("Full text unavailable. Showing feed text. ${e.message}"); cb(null) } } }
     fun isYouTube(url: String): Boolean = Regex("youtube\\.com|youtu\\.be", RegexOption.IGNORE_CASE).containsMatchIn(url)
     // Single entry point for opening an article, honoring the open-mode settings.
@@ -56,7 +65,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 when (repo.settings.youtubeOpenMode.first()) {
                     "SMARTTUBE" -> { if (!launchPackage(ctx, a.url, listOf("org.smarttube.stable", "org.smarttube.beta", "com.liskovsoft.smarttubetv", "com.tehmazmaz.smarttubenext"))) { announce("SmartTube is not installed. Opening in browser."); launchBrowser(ctx, a.url) } }
                     "BROWSER" -> launchBrowser(ctx, a.url)
-                    "IN_APP" -> nav.navigate("reader/${android.net.Uri.encode(a.id)}")
+                    "IN_APP" -> if (Ytdl.supported()) { player.play(a); announce("Loading audio: ${a.title}"); nav.navigate("player") } else nav.navigate("reader/${android.net.Uri.encode(a.id)}")
                     else -> { if (!launchPackage(ctx, a.url, listOf("com.google.android.youtube"))) launchBrowser(ctx, a.url) }
                 }
                 return@launch
@@ -145,7 +154,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val castDevices = MutableStateFlow<List<org.blindrss.android.cast.DlnaDevice>>(emptyList())
     var castTarget: org.blindrss.android.cast.DlnaDevice? = null
     fun discoverCast(ctx: android.content.Context) { viewModelScope.launch { announce("Searching for DLNA renderers"); castDevices.value = org.blindrss.android.cast.Dlna.discover(ctx); announce("Found ${castDevices.value.size} DLNA devices") } }
-    fun castCurrent(device: org.blindrss.android.cast.DlnaDevice) { viewModelScope.launch { val id = player.currentId() ?: return@launch announce("Nothing playing to cast"); val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast"); val url = a.mediaUrl ?: return@launch announce("Current article has no media"); val ok = org.blindrss.android.cast.Dlna.play(device, url, a.title); castTarget = device; player.player?.pause(); announce(if (ok) "Casting ${a.title} to ${device.name}" else "Cast failed to ${device.name}") } }
+    fun castCurrent(device: org.blindrss.android.cast.DlnaDevice) { viewModelScope.launch { val id = player.currentId() ?: return@launch announce("Nothing playing to cast"); val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast"); val url = a.mediaUrl ?: return@launch announce("Current article has no media"); val ok = org.blindrss.android.cast.Dlna.play(device, url, a.title); castTarget = device; player.exo.pause(); announce(if (ok) "Casting ${a.title} to ${device.name}" else "Cast failed to ${device.name}") } }
     fun searchDirectory(q: String, cb: (List<org.blindrss.android.feed.SearchHit>) -> Unit) { viewModelScope.launch { try { cb(org.blindrss.android.feed.DiscoverySearch.search(q)) } catch (e: Exception) { announce("Directory search failed: ${e.message}"); cb(emptyList()) } } }
     // One-time import files pushed to the app's external files dir (desktop account migration).
     fun runStartupImports(ctx: android.content.Context) { viewModelScope.launch {

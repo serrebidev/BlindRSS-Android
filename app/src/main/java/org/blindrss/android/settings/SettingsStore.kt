@@ -60,6 +60,9 @@ class SettingsStore(private val ctx: Context) {
     private val OUTBOX = stringSetPreferencesKey("outbox")
     val outbox: Flow<Set<String>> = ctx.ds.data.map { it[OUTBOX] ?: emptySet() }
     suspend fun editOutbox(f: (Set<String>) -> Set<String>) { ctx.ds.edit { it[OUTBOX] = f(it[OUTBOX] ?: emptySet()) } }
+    // Up next queue (article ids) and the current position in it, restored at launch.
+    suspend fun saveQueue(ids: List<String>, index: Int) { ctx.ds.edit { it[stringPreferencesKey("queue")] = ids.joinToString(","); it[intPreferencesKey("queue_index")] = index } }
+    suspend fun savedQueue(): Pair<List<String>, Int> { val p = ctx.ds.data.first(); return (p[stringPreferencesKey("queue")] ?: "").split(",").filter { it.isNotBlank() } to (p[intPreferencesKey("queue_index")] ?: 0) }
     val minifluxCursor: Flow<Long> = ctx.ds.data.map { it[longPreferencesKey("miniflux_cursor")] ?: 0L }
     suspend fun setMinifluxCursor(v: Long) { ctx.ds.edit { it[longPreferencesKey("miniflux_cursor")] = v } }
     suspend fun setSpeed(v: Float) { ctx.ds.edit { it[PLAYBACK_SPEED] = v } }

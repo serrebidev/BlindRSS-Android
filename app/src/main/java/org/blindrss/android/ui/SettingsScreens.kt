@@ -167,7 +167,7 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
         "reading" -> { val openMode by s.articleOpenMode.collectAsState("BROWSER"); val ytMode by s.youtubeOpenMode.collectAsState("YOUTUBE_APP"); val offline by s.saveFullText.collectAsState(false)
             SettingsPage("Reading", nav, vm) {
                 item { Choices("Open articles in", listOf("BROWSER" to "Browser", "FULL_TEXT" to "BlindRSS, full text", "FEED_TEXT" to "BlindRSS, feed text"), openMode) { scope.launch { s.setArticleOpenMode(it) } } }
-                item { Choices("Open YouTube videos in", listOf("YOUTUBE_APP" to "YouTube app", "SMARTTUBE" to "SmartTube", "BROWSER" to "Browser", "IN_APP" to "BlindRSS"), ytMode) { scope.launch { s.setYoutubeOpenMode(it) } }
+                item { Choices("Open YouTube videos in", listOf("YOUTUBE_APP" to "YouTube app", "SMARTTUBE" to "SmartTube", "BROWSER" to "Browser", "IN_APP" to "BlindRSS audio player"), ytMode) { scope.launch { s.setYoutubeOpenMode(it) } }
                     Note("Falls back to the browser if the app is not installed.") }
                 item { Heading("Offline") }
                 item { SwitchRow("Save full text for offline reading", offline, "Downloads up to 50 new unread articles per refresh. Uses more data.") { scope.launch { s.setFlag("save_full_text", it) } } }
@@ -225,6 +225,11 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { WideButton("Check for updates") { scope.launch { status = "Checking"; val latest = org.blindrss.android.feed.UpdateCheck.latestVersion()
                     newer = latest?.takeIf { it != version }
                     status = when { latest == null -> "Update check failed. Are you online?"; newer == null -> "Up to date."; else -> "Version $latest is available." } } } }
+                item { var ytdl by remember { mutableStateOf("") }; LaunchedEffect(Unit) { if (org.blindrss.android.playback.Ytdl.supported()) vm.ytdlVersion { ytdl = it } }
+                    if (org.blindrss.android.playback.Ytdl.supported()) {
+                        ListItem(headlineContent = { Text("yt-dlp (nightly)") }, supportingContent = { Text(ytdl.ifEmpty { "Starts on first use" }) }, modifier = Modifier.semantics(mergeDescendants = true) {})
+                        WideButton("Update yt-dlp") { status = "Updating yt-dlp"; vm.updateYtdl { status = it; vm.ytdlVersion { v -> ytdl = v } } }
+                    } else Note("YouTube audio needs Android 11 or newer on a 64-bit device.") }
                 if (newer != null) item { WideButton("Download update") { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/serrebidev/BlindRSS-Android/releases/latest"))) } }
                 item { Status(status) }
             } }
