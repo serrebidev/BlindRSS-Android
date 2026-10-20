@@ -55,6 +55,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun updateYtdl(cb: (String) -> Unit) { viewModelScope.launch { cb(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { Ytdl.updateNow(getApplication()) } catch (e: Exception) { "yt-dlp: ${e.message}" } }) } }
     fun ytdlVersion(cb: (String) -> Unit) { viewModelScope.launch { cb(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { Ytdl.version(getApplication()) } catch (e: Exception) { "unknown" } }) } }
     fun download(a: ArticleEntity) { viewModelScope.launch { try { Downloads.enqueue(getApplication(), a); announce("Downloading: ${a.title}. Progress is in the notification.") } catch (e: Exception) { announce("Download failed: ${e.message}") } } }
+    // Whole-category actions use the unplayed (unread) episodes of its feeds, newest first.
+    private suspend fun categoryEpisodes(feeds: List<FeedEntity>) = feeds.flatMap { repo.articles.observeByFeed(it.id).first() }.filter { !it.isRead && canPlay(it) }.sortedByDescending { it.date }
+    fun playCategory(name: String, feeds: List<FeedEntity>) { viewModelScope.launch {
+        val eps = categoryEpisodes(feeds); if (eps.isEmpty()) return@launch announce("No unplayed episodes in $name")
+        player.play(eps.first()); eps.drop(1).forEach { player.enqueue(it) }
+        announce("Playing $name. ${eps.size} episodes in Up next.") } }
+    fun downloadCategory(name: String, feeds: List<FeedEntity>) { viewModelScope.launch {
+        val eps = categoryEpisodes(feeds).filter { it.id !in downloadedIds.value }; if (eps.isEmpty()) return@launch announce("Nothing new to download in $name")
+        announce("Downloading ${eps.size} episodes from $name. Progress is in the notification.")
+        var failed = 0; for (a in eps) try { Downloads.enqueue(getApplication(), a) } catch (_: Exception) { failed++ }
+        if (failed > 0) announce("$failed downloads from $name failed to start") } }
     fun loadFullText(a: ArticleEntity, cb: (String?) -> Unit) { viewModelScope.launch { try { val t = repo.fullText(a); announce("Full text loaded"); cb(t) } catch (e: Exception) { announce("Full text unavailable. Showing feed text. ${e.message}"); cb(null) } } }
     fun isYouTube(url: String): Boolean = Regex("youtube\\.com|youtu\\.be", RegexOption.IGNORE_CASE).containsMatchIn(url)
     // Single entry point for opening an article, honoring the open-mode settings.

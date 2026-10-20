@@ -11,9 +11,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
@@ -135,11 +137,37 @@ fun FeedRow(f: FeedEntity, cat: String, nav: NavController, vm: AppViewModel) {
     }
 }
 
+// One TalkBack stop per category. Double tap opens its articles; expand, play and download are actions.
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun CategoryRow(cat: String, feeds: List<FeedEntity>, open: Boolean, nav: NavController, vm: AppViewModel, onToggle: () -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    val canDownload by vm.repo.settings.categoryDownloads.collectAsState(false)
+    val actions = listOf((if (open) "Collapse" else "Expand") to onToggle, "Play category" to { vm.playCategory(cat, feeds) }) +
+        (if (canDownload) listOf("Download category" to { vm.downloadCategory(cat, feeds) }) else emptyList())
+    val count = if (feeds.size == 1) "1 feed" else "${feeds.size} feeds"
+    Box(Modifier.fillMaxWidth()) {
+        ListItem(headlineContent = { Text(cat) }, supportingContent = { Text(count) }, leadingContent = { Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null) },
+            modifier = Modifier.combinedClickable(onClick = { nav.navigate("categories/${Uri.encode(cat)}") }, onLongClick = { menu = true })
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Category $cat, $count. Double tap to open. Double tap and hold for actions."
+                    stateDescription = if (open) "Expanded" else "Collapsed"
+                    role = Role.Button
+                    customActions = actions.map { (label, act) -> CustomAccessibilityAction(label) { act(); true } }
+                })
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            actions.forEach { (label, act) -> DropdownMenuItem({ Text(label) }, { menu = false; act() }) }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(nav: NavController, vm: AppViewModel) {
     val feeds by vm.feeds.collectAsState(); val unread by vm.unreadCount.collectAsState()
     var menu by remember { mutableStateOf(false) }
+    // Categories start collapsed; expanding is a row action.
+    var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
     Scaffold(topBar = { TopAppBar(title = { Text("BlindRSS", Modifier.semantics { heading() }) }, actions = {
         IconButton(onClick = { vm.refreshAll() }, Modifier.semantics { contentDescription = "Refresh all feeds" }) { Icon(Icons.Filled.Refresh, null) }
         Box { IconButton(onClick = { menu = true }, Modifier.semantics { contentDescription = "More options menu" }) { Icon(Icons.Filled.MoreVert, null) }
@@ -153,16 +181,16 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
         Column(Modifier.padding(pad)) {
             LiveAnnouncer(vm)
             Text("$unread unread articles", Modifier.padding(16.dp).semantics { contentDescription = "$unread unread articles" })
-            val views = listOf(Triple("All Articles", "articles/all", Icons.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.Filled.Label), Triple("Discover News Sources", "discover", Icons.Filled.Explore), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Podcast Episodes", "articles/podcasts", Icons.Filled.Podcasts), Triple("Player, Up Next and Downloads", "player", Icons.Filled.PlayCircle))
+            val views = listOf(Triple("All Articles", "articles/all", Icons.AutoMirrored.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.AutoMirrored.Filled.Label), Triple("Discover News Sources", "discover", Icons.Filled.Explore), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Podcast Episodes", "articles/podcasts", Icons.Filled.Podcasts), Triple("Player, Up Next and Downloads", "player", Icons.Filled.PlayCircle))
             LazyColumn {
                 items(views) { (label, route, icon) ->
                     ListItem(headlineContent = { Text(label) }, leadingContent = { Icon(icon, null) }, modifier = Modifier.clickable { nav.navigate(route) }.semantics { contentDescription = "Open $label"; role = Role.Button })
                     HorizontalDivider()
                 }
-                item { Text("Feeds by category", Modifier.padding(16.dp).semantics { heading(); contentDescription = "Feeds by category" }) }
                 items(feeds.groupBy { it.category }.entries.toList()) { (cat, list) ->
-                    Text(cat, Modifier.padding(start = 16.dp, top = 8.dp).semantics { heading() }, style = MaterialTheme.typography.titleSmall)
-                    list.forEach { f -> FeedRow(f, cat, nav, vm) }
+                    val open = cat in expanded
+                    CategoryRow(cat, list, open, nav, vm) { expanded = if (open) expanded - cat else expanded + cat }
+                    if (open) list.forEach { f -> FeedRow(f, cat, nav, vm) }
                 }
             }
         }
@@ -176,7 +204,7 @@ fun ArticlesScreen(nav: NavController, vm: AppViewModel, mode: String) {
     val flow = remember(mode) { when (mode) { "unread" -> vm.repo.articles.observeUnread(); "read" -> vm.repo.articles.observeRead(); "favorites" -> vm.repo.articles.observeFavorites(); "podcasts" -> vm.repo.articles.observePodcasts(); else -> vm.repo.articles.observeAll() } }
     val articles by flow.collectAsState(emptyList())
     val title = when (mode) { "unread" -> "Unread"; "read" -> "Read"; "favorites" -> "Favorites"; "podcasts" -> "Podcast Episodes"; else -> "All Articles" }
-    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.markAllRead() }, Modifier.semantics { contentDescription = "Mark all read" }) { Icon(Icons.Filled.DoneAll, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.markAllRead() }, Modifier.semantics { contentDescription = "Mark all read" }) { Icon(Icons.Filled.DoneAll, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles. Add a feed or refresh.") }
     }
 }
@@ -187,7 +215,7 @@ fun FeedArticlesScreen(nav: NavController, vm: AppViewModel, feedId: Long) {
     val feeds by vm.feeds.collectAsState()
     val articles by remember(feedId) { vm.repo.articles.observeByFeed(feedId) }.collectAsState(emptyList())
     val feed = feeds.firstOrNull { it.id == feedId }
-    Scaffold(topBar = { TopAppBar(title = { Text(feed?.title ?: "Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(feed?.title ?: "Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles in this feed yet. Pull refresh from home.") }
     }
 }
@@ -200,7 +228,7 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
     var fullText by remember(articleId) { mutableStateOf<String?>(null) }
     var loadingFull by remember(articleId) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    Scaffold(topBar = { TopAppBar(title = { Text("Article", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = {
+    Scaffold(topBar = { TopAppBar(title = { Text("Article", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = {
         article?.let { a ->
             IconButton(onClick = { vm.readAloud(a) }, Modifier.semantics { contentDescription = "Read aloud" }) { Icon(Icons.Filled.RecordVoiceOver, null) }
             IconButton(onClick = { shareText(ctx, a.title, a.url) }, Modifier.semantics { contentDescription = "Share article" }) { Icon(Icons.Filled.Share, null) }
@@ -243,7 +271,7 @@ fun SearchScreen(nav: NavController, vm: AppViewModel) {
     var q by remember { mutableStateOf("") }
     val feeds by vm.feeds.collectAsState()
     val results by remember(q) { if (q.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else vm.repo.articles.search(q) }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Search", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Search", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) {
             OutlinedTextField(q, { q = it }, label = { Text("Search articles") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search articles edit field" }, singleLine = true)
             ArticleList(results, feeds, nav, vm, if (q.isBlank()) "Type to search titles and content." else "No results for $q")
@@ -275,7 +303,7 @@ fun ActionListItem(title: String, supporting: String, description: String, onOpe
 @Composable
 fun DeletedScreen(nav: NavController, vm: AppViewModel) {
     val deleted by remember { vm.repo.misc.observeDeleted() }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Deleted Articles", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.purgeAllDeleted() }, Modifier.semantics { contentDescription = "Purge all deleted articles" }) { Icon(Icons.Filled.DeleteForever, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Deleted Articles", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.purgeAllDeleted() }, Modifier.semantics { contentDescription = "Purge all deleted articles" }) { Icon(Icons.Filled.DeleteForever, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (deleted.isEmpty()) Text("No deleted articles.", Modifier.padding(16.dp))
             LazyColumn { items(deleted, key = { it.id }) { d ->
@@ -290,7 +318,7 @@ fun DeletedScreen(nav: NavController, vm: AppViewModel) {
 @Composable
 fun ErrorsScreen(nav: NavController, vm: AppViewModel) {
     val errs by vm.errorFeeds.collectAsState()
-    Scaffold(topBar = { TopAppBar(title = { Text("Feeds with Errors", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Feeds with Errors", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (errs.isEmpty()) Text("No feeds with errors.", Modifier.padding(16.dp))
             LazyColumn { items(errs, key = { it.id }) { f ->
@@ -309,7 +337,7 @@ fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
     val feeds by vm.feeds.collectAsState()
     var selected by remember { mutableStateOf<SmartFolderEntity?>(null) }
     val all by remember { vm.repo.articles.observeAll() }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Smart Folders", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Smart Folders", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) { LiveAnnouncer(vm)
             OutlinedTextField(name, { name = it }, label = { Text("Folder name") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Smart folder name" })
             OutlinedTextField(value, { value = it }, label = { Text("Contains text in $field") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Smart folder search text" })
@@ -327,7 +355,7 @@ fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
 fun FiltersScreen(nav: NavController, vm: AppViewModel) {
     var name by remember { mutableStateOf("") }; var value by remember { mutableStateOf("") }; var action by remember { mutableStateOf("mark_read") }; var target by remember { mutableStateOf("") }
     val rules by remember { vm.repo.misc.observeRules() }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Filter Rules", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Filter Rules", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) { LiveAnnouncer(vm)
             Text("Rules run on new articles as they arrive.", style = MaterialTheme.typography.bodyMedium)
             OutlinedTextField(name, { name = it }, label = { Text("Rule name") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Rule name" })
@@ -351,7 +379,7 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
     }
     val scope = rememberCoroutineScope()
     var exportMsg by remember { mutableStateOf("") }
-    Scaffold(topBar = { TopAppBar(title = { Text("Add Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Add Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { LiveAnnouncer(vm)
             Text("Paste a feed URL, website URL, YouTube channel, Reddit community, or Lemmy community URL. Discovery finds the feed automatically.", style = MaterialTheme.typography.bodyMedium)
             OutlinedTextField(url, { url = it }, label = { Text("Feed or website URL") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Feed or website URL edit field" }, singleLine = true)
@@ -383,7 +411,7 @@ fun CategoriesScreen(nav: NavController, vm: AppViewModel) {
         for (a in all) { val folder = a.folder ?: feedCat[a.feedId] ?: "Uncategorized"; counts[folder] = (counts[folder] ?: 0) + 1
             for (l in a.labels.split(",").map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("__") }) counts["Label: $l"] = (counts["Label: $l"] ?: 0) + 1 }
         counts.entries.sortedBy { it.key } }
-    Scaffold(topBar = { TopAppBar(title = { Text("Categories and Labels", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Categories and Labels", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (names.isEmpty()) Text("No articles yet.", Modifier.padding(16.dp))
             LazyColumn { items(names) { (name, count) ->
@@ -400,7 +428,7 @@ fun CategoryArticlesScreen(nav: NavController, vm: AppViewModel, name: String) {
     val all by remember { vm.repo.articles.observeAll() }.collectAsState(emptyList())
     val feedCat = feeds.associate { it.id to it.category }
     val matched = remember(all, name) { all.filter { a -> if (name.startsWith("Label: ")) name.removePrefix("Label: ") in a.labels.split(",").map { it.trim() } else (a.folder ?: feedCat[a.feedId] ?: "Uncategorized") == name } }
-    Scaffold(topBar = { TopAppBar(title = { Text(name, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(name, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(matched, feeds, nav, vm, "No articles in $name") }
     }
 }
@@ -446,7 +474,7 @@ fun DiscoverScreen(nav: NavController, vm: AppViewModel) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { country = vm.repo.settings.discoveryCountry.first(); language = vm.repo.settings.discoveryLanguage.first(); city = vm.repo.settings.discoveryCity.first(); region = vm.repo.settings.discoveryRegion.first(); vm.loadCatalogue(); vm.browseDiscover(category) }
     val categories = listOf("General news", "World", "Canada", "Local news", "Politics", "Business", "Technology", "Science", "Health", "Entertainment", "Sports", "Gaming")
-    Scaffold(topBar = { TopAppBar(title = { Text("Discover News Sources", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Discover News Sources", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             LiveAnnouncer(vm)
             OutlinedTextField(query, { query = it }, label = { Text("Publisher name, topic, or website URL") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search publishers by name, topic, or website URL" }, singleLine = true)

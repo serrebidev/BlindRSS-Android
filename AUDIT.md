@@ -11,7 +11,7 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | OPML import/export | Done | `feed/Opml`, nested folders to ` / ` paths, file picker import, export to app files + share |
 | Feed discovery from URL | Done | HTML `<link rel=alternate>`, `FeedDiscovery.normalizeInput` |
 | All/Unread/Read/Favorites views | Done | Home + `articles/{mode}`, unread is filter equivalent of desktop Ctrl+1/2/3 |
-| Categories/folders | Done | Category string on feed, grouped headings on Home |
+| Categories/folders | Done | Category string on feed; Home shows one collapsed row per category (actions: Expand, Play category, Download category when enabled in Settings > Playback) |
 | Smart Folders / saved searches | Done | `smart_folders` table, title/content/author contains, live results |
 | Deleted articles restore/purge | Done | `deleted_articles` tombstone, Restore + DeleteForever + purge all |
 | Feeds-with-errors view | Done | `feeds.lastError`, `observeErrors()`, retry action |

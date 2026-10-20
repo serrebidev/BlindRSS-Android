@@ -53,6 +53,8 @@ class SettingsStore(private val ctx: Context) {
     val wifiOnly = flag("sync_wifi_only", false)
     val refreshOnStart = flag("refresh_on_start", false)
     val saveFullText = flag("save_full_text", false)
+    // Off by default so a stray gesture cannot start dozens of downloads.
+    val categoryDownloads = flag("category_downloads", false)
     // Articles kept per feed; 0 keeps everything.
     val maxPerFeed: Flow<Int> = ctx.ds.data.map { it[intPreferencesKey("max_per_feed")] ?: 0 }
     suspend fun setMaxPerFeed(v: Int) { ctx.ds.edit { it[intPreferencesKey("max_per_feed")] = v } }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,7 +35,7 @@ import org.blindrss.android.sync.SyncWorker
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsPage(title: String, nav: NavController, vm: AppViewModel, content: LazyListScope.() -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), content = content) }
     }
 }
@@ -61,7 +62,7 @@ private fun SettingsPage(title: String, nav: NavController, vm: AppViewModel, co
     Button(onClick, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), enabled = enabled) { Text(label) }
 
 private val sections = listOf(
-    Triple("Reading", "reading", Icons.Filled.MenuBook), Triple("Article lists", "lists", Icons.Filled.ViewList),
+    Triple("Reading", "reading", Icons.AutoMirrored.Filled.MenuBook), Triple("Article lists", "lists", Icons.AutoMirrored.Filled.ViewList),
     Triple("Sync and notifications", "sync", Icons.Filled.Sync), Triple("Playback", "playback", Icons.Filled.PlayCircle),
     Triple("Discovery", "discovery", Icons.Filled.Explore), Triple("About", "about", Icons.Filled.Info))
 
@@ -201,12 +202,14 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                         perm.launch(android.Manifest.permission.POST_NOTIFICATIONS) } }
                 item { Status(status) }
             } }
-        "playback" -> { val speed by s.playbackSpeed.collectAsState(1f); val silence by s.skipSilence.collectAsState(true); val sponsor by s.sponsorBlock.collectAsState(true)
+        "playback" -> { val speed by s.playbackSpeed.collectAsState(1f); val silence by s.skipSilence.collectAsState(true); val sponsor by s.sponsorBlock.collectAsState(true); val catDl by s.categoryDownloads.collectAsState(false)
             SettingsPage("Playback", nav, vm) {
                 item { Choices("Default speed", listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).map { it to "${it}x" }, speed) { vm.player.setSpeed(it); scope.launch { s.setSpeed(it) } } }
                 item { Heading("Audio") }
                 item { SwitchRow("Skip silence", silence) { vm.player.setSkipSilence(it) } }
                 item { SwitchRow("SponsorBlock", sponsor, "Skips sponsor segments in YouTube videos.") { scope.launch { s.setSponsorBlock(it) } } }
+                item { Heading("Downloads") }
+                item { SwitchRow("Download whole categories", catDl, "Adds a Download category action to categories on the home screen. Downloads every unplayed episode.") { scope.launch { s.setFlag("category_downloads", it) } } }
                 item { Note("Equalizer and sleep timer are in the player.") }
             } }
         "discovery" -> { var newsApi by remember { mutableStateOf("") }; var theNewsApi by remember { mutableStateOf("") }
