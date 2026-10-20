@@ -31,6 +31,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun purgeDeleted(id: String) { viewModelScope.launch { repo.misc.purgeDeleted(id); announce("Article permanently deleted") } }
     fun purgeAllDeleted() { viewModelScope.launch { repo.misc.purgeAllDeleted(); announce("All deleted articles purged") } }
     fun markAllRead() { viewModelScope.launch { repo.articles.markAllRead(); announce("All articles marked read") } }
+    fun markFeedRead(f: FeedEntity) { viewModelScope.launch { repo.articles.markFeedRead(f.id); announce("Marked all read in ${f.title}") } }
     fun importOpml(xml: String) { viewModelScope.launch { val n = repo.importOpml(xml); announce("Imported $n feeds from OPML") } }
     fun play(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: a.url; player.loadSponsorBlock(a.url); player.play(a.id, url, a.title); announce("Playing: ${a.title}") } }
     fun download(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: return@launch announce("No media to download"); try { Downloader.downloadEpisode(getApplication(), repo, a.id, url); announce("Downloaded episode: ${a.title}") } catch (e: Exception) { announce("Download failed: ${e.message}") } } }

@@ -5,6 +5,7 @@ import android.text.Html
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,34 +38,43 @@ fun LiveAnnouncer(vm: AppViewModel) {
     Box(Modifier.size(1.dp).semantics { liveRegion = LiveRegionMode.Polite; contentDescription = msg }) {}
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, vm: AppViewModel) {
     val ctx = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
     val feedTitle = feeds.firstOrNull { it.id == a.feedId }?.title ?: ""
     val dateStr = DateFormat.getDateInstance().format(Date(a.date))
     val state = buildString { if (!a.isRead) append("Unread. "); if (a.isFavorite) append("Favorite. "); if (a.mediaUrl != null) append("Has media. ") }
-    Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) {
-        contentDescription = "${a.title}. $feedTitle. $dateStr. $state"
-        stateDescription = state.ifBlank { "Read" }
-        customActions = listOf(
-            CustomAccessibilityAction(if (a.isRead) "Mark unread" else "Mark read") { vm.setRead(a, !a.isRead); true },
-            CustomAccessibilityAction(if (a.isFavorite) "Remove favorite" else "Add favorite") { vm.toggleFavorite(a); true },
-            CustomAccessibilityAction("Share") { shareText(ctx, a.title, a.url); true },
-            CustomAccessibilityAction("Play") { vm.play(a); true },
-            CustomAccessibilityAction("Delete") { vm.deleteArticle(a); true }
-        )
-    }.clickable { onOpen() }) {
-        Column(Modifier.padding(12.dp)) {
-            Text(a.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
-            if (feedTitle.isNotEmpty()) Text(feedTitle, style = MaterialTheme.typography.labelMedium)
-            Text(dateStr, style = MaterialTheme.typography.labelSmall)
-            if (a.description.isNotBlank()) Text(stripHtml(a.description).take(160), style = MaterialTheme.typography.bodySmall, maxLines = 2)
-            Row {
-                IconButton(onClick = { vm.setRead(a, !a.isRead) }, modifier = Modifier.semantics { contentDescription = if (a.isRead) "Mark unread" else "Mark read" }) { Icon(if (a.isRead) Icons.Filled.MarkEmailRead else Icons.Filled.MarkEmailUnread, null) }
-                IconButton(onClick = { vm.toggleFavorite(a) }, modifier = Modifier.semantics { contentDescription = if (a.isFavorite) "Remove favorite" else "Add favorite" }) { Icon(if (a.isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder, null) }
-                if (a.mediaUrl != null) IconButton(onClick = { vm.play(a) }, modifier = Modifier.semantics { contentDescription = "Play ${a.title}" }) { Icon(Icons.Filled.PlayArrow, null) }
-                IconButton(onClick = { shareText(ctx, a.title, a.url) }, modifier = Modifier.semantics { contentDescription = "Share ${a.title}" }) { Icon(Icons.Filled.Share, null) }
+    Box(Modifier.fillMaxWidth()) {
+        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) {
+            contentDescription = "${a.title}. $feedTitle. $dateStr. $state Double tap to open. Double tap and hold for actions."
+            stateDescription = state.ifBlank { "Read" }
+            customActions = listOf(
+                CustomAccessibilityAction(if (a.isRead) "Mark unread" else "Mark read") { vm.setRead(a, !a.isRead); true },
+                CustomAccessibilityAction(if (a.isFavorite) "Remove favorite" else "Add favorite") { vm.toggleFavorite(a); true },
+                CustomAccessibilityAction("Download episode") { vm.download(a); true },
+                CustomAccessibilityAction("Share") { shareText(ctx, a.title, a.url); true },
+                CustomAccessibilityAction("Play") { vm.play(a); true },
+                CustomAccessibilityAction("Delete") { vm.deleteArticle(a); true }
+            )
+        }.combinedClickable(onClick = { onOpen() }, onLongClick = { menu = true })) {
+            Column(Modifier.padding(12.dp)) {
+                Text(a.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                if (feedTitle.isNotEmpty()) Text(feedTitle, style = MaterialTheme.typography.labelMedium)
+                Text(dateStr, style = MaterialTheme.typography.labelSmall)
+                if (a.description.isNotBlank()) Text(stripHtml(a.description).take(160), style = MaterialTheme.typography.bodySmall, maxLines = 2)
             }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem({ Text(if (a.isRead) "Mark unread" else "Mark read") }, { menu = false; vm.setRead(a, !a.isRead) })
+            DropdownMenuItem({ Text(if (a.isFavorite) "Remove favorite" else "Add favorite") }, { menu = false; vm.toggleFavorite(a) })
+            if (a.mediaUrl != null) {
+                DropdownMenuItem({ Text("Play") }, { menu = false; vm.play(a) })
+                DropdownMenuItem({ Text("Download episode") }, { menu = false; vm.download(a) })
+            }
+            DropdownMenuItem({ Text("Share") }, { menu = false; shareText(ctx, a.title, a.url) })
+            DropdownMenuItem({ Text("Delete") }, { menu = false; vm.deleteArticle(a) })
         }
     }
 }
@@ -73,6 +83,32 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, vm
 fun ArticleList(articles: List<ArticleEntity>, feeds: List<FeedEntity>, nav: NavController, vm: AppViewModel, emptyText: String) {
     if (articles.isEmpty()) { Text(emptyText, Modifier.padding(16.dp).semantics { contentDescription = emptyText }); return }
     LazyColumn { items(articles, key = { it.id }) { a -> ArticleRow(a, feeds, { nav.navigate("reader/${Uri.encode(a.id)}") }, vm) } }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun FeedRow(f: FeedEntity, cat: String, nav: NavController, vm: AppViewModel) {
+    var menu by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        ListItem(headlineContent = { Text(f.title) }, supportingContent = { Text(f.url) },
+            modifier = Modifier.combinedClickable(onClick = { nav.navigate("articles/feed/${f.id}") }, onLongClick = { menu = true })
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "Feed ${f.title}, category $cat.${if (f.muted) " Notifications muted." else ""} ${f.lastError?.let { "Error: $it. " } ?: ""}Double tap to open. Double tap and hold for actions."
+                    role = Role.Button
+                    customActions = listOf(
+                        CustomAccessibilityAction("Refresh feed") { vm.refreshFeed(f); true },
+                        CustomAccessibilityAction(if (f.muted) "Unmute notifications" else "Mute notifications") { vm.toggleMute(f); true },
+                        CustomAccessibilityAction("Mark feed read") { vm.markFeedRead(f); true },
+                        CustomAccessibilityAction("Delete feed") { vm.deleteFeed(f); true }
+                    )
+                })
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem({ Text("Refresh feed") }, { menu = false; vm.refreshFeed(f) })
+            DropdownMenuItem({ Text(if (f.muted) "Unmute notifications" else "Mute notifications") }, { menu = false; vm.toggleMute(f) })
+            DropdownMenuItem({ Text("Mark feed read") }, { menu = false; vm.markFeedRead(f) })
+            DropdownMenuItem({ Text("Delete feed") }, { menu = false; vm.deleteFeed(f) })
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,10 +138,7 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
                 item { Text("Feeds by category", Modifier.padding(16.dp).semantics { heading(); contentDescription = "Feeds by category" }) }
                 items(feeds.groupBy { it.category }.entries.toList()) { (cat, list) ->
                     Text(cat, Modifier.padding(start = 16.dp, top = 8.dp).semantics { heading() }, style = MaterialTheme.typography.titleSmall)
-                    list.forEach { f ->
-                        ListItem(headlineContent = { Text(f.title) }, supportingContent = { Text(f.url) }, modifier = Modifier.clickable { nav.navigate("articles/feed/${f.id}") }.semantics { contentDescription = "Feed ${f.title}, category $cat. ${f.lastError?.let { "Error: $it" } ?: ""}"; role = Role.Button },
-                            trailingContent = { Row { IconButton(onClick = { vm.refreshFeed(f) }, Modifier.semantics { contentDescription = "Refresh ${f.title}" }) { Icon(Icons.Filled.Refresh, null) }; IconButton(onClick = { vm.toggleMute(f) }, Modifier.semantics { contentDescription = if (f.muted) "Unmute notifications for ${f.title}" else "Mute notifications for ${f.title}" }) { Icon(if (f.muted) Icons.Filled.NotificationsOff else Icons.Filled.Notifications, null) }; IconButton(onClick = { vm.deleteFeed(f) }, Modifier.semantics { contentDescription = "Delete feed ${f.title}" }) { Icon(Icons.Filled.Delete, null) } } })
-                    }
+                    list.forEach { f -> FeedRow(f, cat, nav, vm) }
                 }
             }
         }
@@ -179,6 +212,26 @@ fun SearchScreen(nav: NavController, vm: AppViewModel) {
     }
 }
 
+// One TalkBack stop per row. No trailing buttons: actions live in TalkBack
+// custom actions and in the double-tap-and-hold (long press) menu.
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun ActionListItem(title: String, supporting: String, description: String, onOpen: (() -> Unit)?, actions: List<Pair<String, () -> Unit>>) {
+    var menu by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        ListItem(headlineContent = { Text(title) }, supportingContent = { Text(supporting) },
+            modifier = Modifier.combinedClickable(onClick = { if (onOpen != null) onOpen() else menu = true }, onLongClick = { menu = true })
+                .semantics(mergeDescendants = true) {
+                    contentDescription = "$description Double tap and hold for actions."
+                    role = Role.Button
+                    customActions = actions.map { (label, act) -> CustomAccessibilityAction(label) { act(); true } }
+                })
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            actions.forEach { (label, act) -> DropdownMenuItem({ Text(label) }, { menu = false; act() }) }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeletedScreen(nav: NavController, vm: AppViewModel) {
@@ -187,7 +240,8 @@ fun DeletedScreen(nav: NavController, vm: AppViewModel) {
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (deleted.isEmpty()) Text("No deleted articles.", Modifier.padding(16.dp))
             LazyColumn { items(deleted, key = { it.id }) { d ->
-                ListItem(headlineContent = { Text(d.title) }, supportingContent = { Text("Deleted ${DateFormat.getDateInstance().format(Date(d.deletedAt))}") }, trailingContent = { Row { IconButton(onClick = { vm.restoreDeleted(d.id) }, Modifier.semantics { contentDescription = "Restore ${d.title}" }) { Icon(Icons.Filled.Restore, null) }; IconButton(onClick = { vm.purgeDeleted(d.id) }, Modifier.semantics { contentDescription = "Permanently delete ${d.title}" }) { Icon(Icons.Filled.DeleteForever, null) } } })
+                ActionListItem(d.title, "Deleted ${DateFormat.getDateInstance().format(Date(d.deletedAt))}", "Deleted article ${d.title}. Double tap to restore.", onOpen = { vm.restoreDeleted(d.id) },
+                    actions = listOf("Restore" to { vm.restoreDeleted(d.id) }, "Delete forever" to { vm.purgeDeleted(d.id) }))
                 HorizontalDivider() } }
         }
     }
@@ -201,7 +255,8 @@ fun ErrorsScreen(nav: NavController, vm: AppViewModel) {
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (errs.isEmpty()) Text("No feeds with errors.", Modifier.padding(16.dp))
             LazyColumn { items(errs, key = { it.id }) { f ->
-                ListItem(headlineContent = { Text(f.title) }, supportingContent = { Text("${f.lastError}\n${f.url}\nFailures: ${f.consecutiveFailures}") }, trailingContent = { IconButton(onClick = { vm.refreshFeed(f) }, Modifier.semantics { contentDescription = "Retry ${f.title}" }) { Icon(Icons.Filled.Refresh, null) } }, modifier = Modifier.semantics { contentDescription = "Feed ${f.title} error ${f.lastError}" })
+                ActionListItem(f.title, "${f.lastError}\n${f.url}\nFailures: ${f.consecutiveFailures}", "Feed ${f.title} error ${f.lastError}. Double tap to retry.", onOpen = { vm.refreshFeed(f) },
+                    actions = listOf("Retry feed" to { vm.refreshFeed(f) }, "Open feed" to { nav.navigate("articles/feed/${f.id}") }, "Delete feed" to { vm.deleteFeed(f) }))
                 HorizontalDivider() } }
         }
     }
@@ -221,7 +276,8 @@ fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
             OutlinedTextField(value, { value = it }, label = { Text("Contains text in $field") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Smart folder search text" })
             Row { listOf("title", "content", "author").forEach { f -> FilterChip(field == f, { field = f }, { Text(f) }, modifier = Modifier.semantics { contentDescription = "Match field $f" }) } }
             Button(onClick = { if (name.isNotBlank() && value.isNotBlank()) { val n = name; val v = value; val fl = field; kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.misc.insertSmart(SmartFolderEntity(name = n, field = fl, value = v)) }; name = ""; value = "" } }, Modifier.semantics { contentDescription = "Create smart folder" }) { Text("Create smart folder") }
-            LazyColumn { items(folders, key = { it.id }) { f -> ListItem(headlineContent = { Text(f.name) }, supportingContent = { Text("${f.field} contains ${f.value}") }, modifier = Modifier.clickable { selected = f }.semantics { contentDescription = "Smart folder ${f.name}, ${f.field} contains ${f.value}"; role = Role.Button }, trailingContent = { IconButton(onClick = { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.misc.deleteSmart(f) } }, Modifier.semantics { contentDescription = "Delete smart folder ${f.name}" }) { Icon(Icons.Filled.Delete, null) } }) } }
+            LazyColumn { items(folders, key = { it.id }) { f -> ActionListItem(f.name, "${f.field} contains ${f.value}", "Smart folder ${f.name}, ${f.field} contains ${f.value}. Double tap to show results.", onOpen = { selected = f },
+                actions = listOf("Show results" to { selected = f }, "Delete smart folder" to { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.misc.deleteSmart(f) } })) } }
             selected?.let { f -> Text("Results for ${f.name}", Modifier.semantics { heading() }); val matched = all.filter { a -> val v = when (f.field) { "content" -> a.content; "author" -> a.author; else -> a.title }; v.contains(f.value, true) }; ArticleList(matched, feeds, nav, vm, "No matching articles.") }
         }
     }
@@ -240,7 +296,8 @@ fun FiltersScreen(nav: NavController, vm: AppViewModel) {
             Row { listOf("mark_read" to "Mark read", "mark_favorite" to "Favorite", "delete" to "Delete", "move" to "Move", "label" to "Label", "skip_notification" to "Skip notify").forEach { (v, l) -> FilterChip(action == v, { action = v }, { Text(l) }, modifier = Modifier.semantics { contentDescription = "Action $l" }) } }
             if (action == "move" || action == "label") OutlinedTextField(target, { target = it }, label = { Text(if (action == "move") "Move to category" else "Label name") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = if (action == "move") "Move to category" else "Label name" })
             Button(onClick = { if (name.isNotBlank() && value.isNotBlank()) { val n = name; val v = value; val ac = action; val tg = target; kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.misc.insertRule(FilterRuleEntity(name = n, field = "title", op = "contains", value = v, action = ac, target = tg.ifBlank { null })) }; name = ""; value = ""; target = "" } }, Modifier.semantics { contentDescription = "Create filter rule" }) { Text("Create rule") }
-            LazyColumn { items(rules, key = { it.id }) { r -> ListItem(headlineContent = { Text(r.name) }, supportingContent = { Text("title contains ${r.value} then ${r.action}${r.target?.let { " to $it" } ?: ""}") }, trailingContent = { IconButton(onClick = { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.misc.deleteRule(r) } }, Modifier.semantics { contentDescription = "Delete rule ${r.name}" }) { Icon(Icons.Filled.Delete, null) } }) } }
+            LazyColumn { items(rules, key = { it.id }) { r -> ActionListItem(r.name, "title contains ${r.value} then ${r.action}${r.target?.let { " to $it" } ?: ""}", "Filter rule ${r.name}.", onOpen = null,
+                actions = listOf("Delete rule" to { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.misc.deleteRule(r) } })) } }
         }
     }
 }
@@ -271,7 +328,8 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
             var dq by remember { mutableStateOf("") }; var hits by remember { mutableStateOf<List<org.blindrss.android.feed.SearchHit>>(emptyList()) }; var searching by remember { mutableStateOf(false) }
             OutlinedTextField(dq, { dq = it }, label = { Text("Search Apple Podcasts and gPodder") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search podcast directories" }, singleLine = true)
             Button(onClick = { searching = true; vm.searchDirectory(dq) { hits = it; searching = false } }, Modifier.fillMaxWidth().semantics { contentDescription = "Search directories" }) { Text(if (searching) "Searching..." else "Search") }
-            hits.forEach { h -> ListItem(headlineContent = { Text(h.title) }, supportingContent = { Text("${h.source}: ${h.feedUrl}") }, trailingContent = { Button(onClick = { vm.addFeed(h.feedUrl, cat) }, Modifier.semantics { contentDescription = "Subscribe to ${h.title}" }) { Text("Subscribe") } }) }
+            hits.forEach { h -> ActionListItem(h.title, "${h.source}: ${h.feedUrl}", "Podcast ${h.title} from ${h.source}. Double tap to subscribe.", onOpen = { vm.addFeed(h.feedUrl, cat) },
+                actions = listOf("Subscribe" to { vm.addFeed(h.feedUrl, cat) })) }
         }
     }
 }

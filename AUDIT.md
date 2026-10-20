@@ -50,7 +50,7 @@ All provider clients use OkHttp with real endpoints — no stubs. `testLogin()` 
 
 ## Accessibility (TalkBack-first, per .firecrawl CVS techniques)
 
-Every interactive element carries `contentDescription`; article rows merge descendants into one focus stop with `customActions` (mark read, favorite, share, play, delete) and `stateDescription`; feed/section titles use `heading()`; sync results/errors post to a polite live region (`LiveAnnouncer`) and notifications; logical focus order follows layout; no focus traps; 48dp Material touch targets.
+One TalkBack focus stop per row: rows have no buttons of their own. Article, feed, deleted, error, smart-folder, filter-rule and directory rows merge descendants into one stop with `customActions` (mark read, favorite, download, share, play, delete; refresh/mute/mark-read/delete for feeds) and `stateDescription`; the same actions open as a menu on double-tap-and-hold (long press, `combinedClickable`); rows announce 'Double tap to open. Double tap and hold for actions.' Remaining buttons are screen-level only: back, refresh-all, menus, and the player transport controls. Feed/section titles use `heading()`; sync results/errors post to a polite live region (`LiveAnnouncer`) and notifications.
 
 ## Known gaps
 
