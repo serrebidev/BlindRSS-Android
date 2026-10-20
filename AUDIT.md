@@ -19,7 +19,7 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Full-text extraction | Done | `FullText.extract` Readability-style scored extraction (jsoup, link-density penalty, tightest-container pick, boilerplate drop); browser user-agent; Miniflux server fetch-content preferred when available; verified on mapleridgenews.com (WordPress, no <article> tag) |
 | Search | Done | Room LIKE over title/content/description |
 | Mark read/unread, mark all read | Done | Row actions, custom accessibility actions, provider push-back |
-| Article reader HTML | Done | Plain-text rendering, Fetch full text (never blanks: keeps feed text on failure and only swaps in longer text), share, open externally. Opening articles is configurable: browser (default), full text in app, feed text in app; YouTube opens in YouTube app / SmartTube / browser / in app (Settings > Reading) |
+| Article reader HTML | Done | Plain-text rendering, one TalkBack stop per paragraph (headings marked; body never hidden behind a contentDescription), Fetch full text (never blanks: keeps feed text on failure; auto full-text only swaps in longer text), share, open externally. Opening articles is configurable: browser (default), full text in app, feed text in app; YouTube opens in YouTube app / SmartTube / browser / in app (Settings > Reading) |
 | Podcast/video playback | Done | Media3 ExoPlayer, `PlaybackService` MediaSession, speed 0.5–2x, seek ±10s, resume via `playback_state` |
 | Chapters | Done | `chapters` table, Player chapter list + prev/next; Podcasting 2.0 `<podcast:chapters>` JSON fetched and parsed (`PodcastChapters`, tested) |
 | Sleep timer | Done | Player 15/30/60 min |

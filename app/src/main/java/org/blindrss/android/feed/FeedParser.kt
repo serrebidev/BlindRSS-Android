@@ -207,6 +207,37 @@ object FullText {
         return sb.toString()
     }
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    data class Block(val heading: Boolean, val text: String)
+    // Split article HTML into readable blocks so each paragraph is its own
+    // TalkBack stop in the reader. Never wrap body text in a contentDescription.
+    fun blocks(html: String): List<Block> {
+        val out = mutableListOf<Block>()
+        try {
+            val sel = "h1, h2, h3, h4, h5, h6, p, li, blockquote"
+            val body = org.jsoup.Jsoup.parseBodyFragment(html).body()
+            for (el in body.select(sel)) {
+                // select() includes el itself: >1 means a nested block (li > p) will be read on its own.
+                if (el.select(sel).size > 1) continue
+                val t = el.text().trim(); if (t.length < 2) continue
+                if (out.lastOrNull()?.text == t) continue
+                out += Block(el.tagName().startsWith("h"), t)
+            }
+            // Text sitting outside block tags (div/br layouts) would be lost: fall back to plain splitting.
+            if (out.sumOf { it.text.length } < body.text().length / 2) out.clear()
+        } catch (_: Exception) { out.clear() }
+        if (out.isEmpty()) {
+            // Split on blank lines, <br> and block ends before stripping: strip() collapses newlines.
+            for (para in html.split(Regex("\\r?\\n\\s*\\r?\\n|(?i)<br\\s*/?>|(?i)</(div|p|li|h[1-6]|blockquote|tr|section|article)>"))) {
+                val p = try { org.jsoup.Jsoup.parseBodyFragment(para).text().trim() } catch (_: Exception) { strip(para) }; if (p.length < 2) continue
+                if (p.length <= 900) out += Block(false, p) else {
+                    var rest = p
+                    while (rest.length > 900) { val cut = rest.lastIndexOf(". ", 900).takeIf { it > 300 } ?: 900; out += Block(false, rest.substring(0, cut + 1).trim()); rest = rest.substring(cut + 1).trim() }
+                    if (rest.isNotEmpty()) out += Block(false, rest)
+                }
+            }
+        }
+        return out
+    }
     fun plainLength(html: String) = toPlain(html).length
     fun strip(s: String) = try { org.jsoup.Jsoup.clean(s, "", org.jsoup.safety.Safelist.none()) } catch (_: Exception) { s.replace(Regex("<[^>]+>"), " ") }
         .replace("&nbsp;", " ").replace(Regex("\\s+"), " ").trim()

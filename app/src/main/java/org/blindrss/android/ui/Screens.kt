@@ -184,8 +184,8 @@ fun FeedArticlesScreen(nav: NavController, vm: AppViewModel, feedId: Long) {
 fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
     val article by remember(articleId) { vm.repo.articles.observeById(articleId) }.collectAsState(null)
     val ctx = LocalContext.current
-    var fullText by remember { mutableStateOf<String?>(null) }
-    var loadingFull by remember { mutableStateOf(false) }
+    var fullText by remember(articleId) { mutableStateOf<String?>(null) }
+    var loadingFull by remember(articleId) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Scaffold(topBar = { TopAppBar(title = { Text("Article", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }, actions = {
         article?.let { a ->
@@ -199,11 +199,23 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
             if (a == null) { Text("Loading article") } else {
                 LaunchedEffect(a.id) { if (!a.isRead) vm.setRead(a, true)
                     if (vm.repo.settings.articleOpenMode.first() == "FULL_TEXT" && fullText == null) { loadingFull = true; vm.loadFullText(a) { t -> if (t != null && stripHtml(t).length > stripHtml(a.content.ifBlank { a.description }).length) fullText = t; loadingFull = false } } }
+                val bodyHtml = fullText ?: a.content.ifBlank { a.description }
+                val blocks = remember(bodyHtml) { org.blindrss.android.feed.FullText.blocks(bodyHtml) }
                 LazyColumn {
                     item { Text(a.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() }); Text(DateFormat.getDateTimeInstance().format(Date(a.date)), style = MaterialTheme.typography.labelMedium); if (a.author.isNotBlank()) Text("By ${a.author}", style = MaterialTheme.typography.labelMedium) }
                     item { Row { Button(onClick = { vm.toggleFavorite(a) }, Modifier.semantics { contentDescription = if (a.isFavorite) "Remove favorite" else "Add favorite" }) { Text(if (a.isFavorite) "Unfavorite" else "Favorite") }; Spacer(Modifier.width(8.dp)); Button(onClick = { vm.setRead(a, !a.isRead) }, Modifier.semantics { contentDescription = if (a.isRead) "Mark unread" else "Mark read" }) { Text(if (a.isRead) "Mark unread" else "Mark read") }; if (a.mediaUrl != null) { Spacer(Modifier.width(8.dp)); Button(onClick = { vm.play(a); nav.navigate("player") }, Modifier.semantics { contentDescription = "Play media" }) { Text("Play") } } } }
-                    item { Button(onClick = { loadingFull = true; vm.loadFullText(a) { t -> if (t != null && stripHtml(t).length > stripHtml(a.content.ifBlank { a.description }).length) fullText = t else if (t != null) fullText = t; loadingFull = false } }, Modifier.semantics { contentDescription = "Fetch full article text" }) { Text(if (loadingFull) "Fetching full text..." else if (fullText != null) "Full text shown. Fetch again" else "Fetch full text") } }
-                    item { val body = fullText ?: a.content.ifBlank { a.description }; Text(stripHtml(body).ifBlank { "No article text available. Use Open externally to read in your browser." }, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.semantics { contentDescription = "Article body" }) }
+                    item { Button(onClick = { loadingFull = true; vm.loadFullText(a) { t -> if (t != null) fullText = t; loadingFull = false } }, Modifier.semantics { contentDescription = "Fetch full article text" }) { Text(if (loadingFull) "Fetching full text..." else if (fullText != null) "Full text shown. Fetch again" else "Fetch full text") } }
+                    // Each paragraph is its own TalkBack stop with its real text.
+                    // Do NOT set contentDescription here: it would replace the
+                    // paragraph text TalkBack reads (the old "Article body" bug).
+                    if (blocks.isEmpty()) {
+                        item { Text("No article text available. Use Open externally to read in your browser.", style = MaterialTheme.typography.bodyLarge) }
+                    } else {
+                        items(blocks) { b ->
+                            if (b.heading) Text(b.text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp).semantics { heading() })
+                            else Text(b.text, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 10.dp))
+                        }
+                    }
                 }
             }
         }

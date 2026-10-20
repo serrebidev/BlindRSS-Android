@@ -35,6 +35,17 @@ class FeedParserTest {
         assertTrue(out.contains("wildlife rehabilitation centre"))
         assertFalse(out.contains("Navigation menu with every section"))
     }
+    @Test fun fullTextBlocksAreSeparateParagraphs() {
+        val blocks = FullText.blocks("<h2>Section</h2><p>First paragraph with enough text to read.</p><p>Second paragraph follows here.</p>")
+        assertEquals(3, blocks.size); assertTrue(blocks[0].heading); assertEquals("First paragraph with enough text to read.", blocks[1].text)
+        val plain = FullText.blocks("Plain one.\n\nPlain two.")
+        assertEquals(2, plain.size); assertEquals("Plain two.", plain[1].text)
+        val nested = FullText.blocks("<ul><li><p>Item one text.</p></li></ul><blockquote><p>Quoted line.</p></blockquote>")
+        assertEquals(listOf("Item one text.", "Quoted line."), nested.map { it.text })
+        val loose = FullText.blocks("<div>Loose text that is long enough to matter here.<br><br>And more loose text after a break.</div><p>Hi.</p>")
+        assertEquals(listOf("Loose text that is long enough to matter here.", "And more loose text after a break.", "Hi."), loose.map { it.text })
+        assertEquals("Tom & Jerry.", FullText.blocks("Tom &amp; Jerry.")[0].text)
+    }
     @Test fun podcastChapters() { val f = FeedParser.parse("""<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>P</title><item><title>Ep1</title><link>https://e.com/ep1</link><guid>ep1</guid><enclosure url="https://e.com/ep1.mp3" type="audio/mpeg"/><podcast:chapters url="https://e.com/ep1-chapters.json" type="application/json+chapters"/></item></channel></rss>""", "https://e.com/feed")
         assertEquals("https://e.com/ep1-chapters.json", f.articles[0].chaptersUrl)
         val ch = PodcastChapters.parse("""{"version":"1.2.0","chapters":[{"startTime":0,"title":"Intro"},{"startTime":95.5,"title":"Main"}]}""")
