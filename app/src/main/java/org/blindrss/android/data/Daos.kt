@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.Flow
     @Delete suspend fun delete(f: FeedEntity)
     @Query("SELECT * FROM feeds WHERE url = :url LIMIT 1") suspend fun byUrl(url: String): FeedEntity?
     @Query("SELECT * FROM feeds WHERE id = :id") suspend fun byId(id: Long): FeedEntity?
+    @Query("SELECT * FROM feeds WHERE remoteId = :remoteId LIMIT 1") suspend fun byRemoteId(remoteId: String): FeedEntity?
+    @Query("UPDATE feeds SET remoteId = NULL") suspend fun clearRemoteIds()
 }
 @Dao interface ArticleDao {
     @Query("SELECT * FROM articles ORDER BY date DESC") fun observeAll(): Flow<List<ArticleEntity>>
@@ -29,6 +31,12 @@ import kotlinx.coroutines.flow.Flow
     @Query("UPDATE articles SET isRead = 1 WHERE feedId = :feedId") suspend fun markFeedRead(feedId: Long)
     @Delete suspend fun delete(a: ArticleEntity)
     @Query("DELETE FROM articles WHERE id = :id") suspend fun deleteById(id: String)
+    @Query("DELETE FROM articles WHERE feedId = :feedId") suspend fun deleteByFeed(feedId: Long)
+    @Query("SELECT * FROM articles WHERE feedId = :feedId AND url = :url AND remoteId IS NULL LIMIT 1") suspend fun localByUrl(feedId: Long, url: String): ArticleEntity?
+    @Query("SELECT url FROM articles WHERE feedId = :feedId AND remoteId IS NOT NULL") suspend fun syncedUrls(feedId: Long): List<String>
+    @Query("UPDATE articles SET isRead = :read, isFavorite = :fav, remoteId = :remoteId WHERE id = :id") suspend fun setRemoteState(id: String, read: Boolean, fav: Boolean, remoteId: String)
+    @Query("SELECT * FROM articles WHERE isRead = 0 AND remoteId IS NOT NULL") suspend fun unreadRemote(): List<ArticleEntity>
+    @Query("UPDATE articles SET isRead = 1 WHERE id IN (:ids)") suspend fun markRead(ids: List<String>)
     @Query("SELECT COUNT(*) FROM articles WHERE isRead = 0") fun unreadCount(): Flow<Int>
 }
 @Dao interface MiscDao {
@@ -37,6 +45,7 @@ import kotlinx.coroutines.flow.Flow
     @Query("DELETE FROM deleted_articles WHERE id = :id") suspend fun purgeDeleted(id: String)
     @Query("SELECT * FROM deleted_articles WHERE id = :id") suspend fun deletedById(id: String): DeletedArticleEntity?
     @Query("DELETE FROM deleted_articles") suspend fun purgeAllDeleted()
+    @Query("SELECT id FROM deleted_articles") suspend fun deletedIds(): List<String>
     @Query("SELECT * FROM smart_folders ORDER BY name") fun observeSmart(): Flow<List<SmartFolderEntity>>
     @Insert suspend fun insertSmart(s: SmartFolderEntity)
     @Delete suspend fun deleteSmart(s: SmartFolderEntity)

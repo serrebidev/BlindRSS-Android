@@ -26,5 +26,5 @@ Debug APK: `app/build/outputs/apk/debug/app-debug.apk` (signed with debug key).
 
 ## Providers setup
 
-Settings → pick provider → server URL / username / password-or-token → Test login → Sync now.
+Settings → Add provider → pick one → enter credentials → Sign in. The login is tested before anything is saved; a first sync runs after.
 Credentials are stored encrypted (Android Keystore AES-GCM). Inoreader: paste an OAuth access token (App ID/Key fields provided).

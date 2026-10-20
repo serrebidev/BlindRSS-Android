@@ -24,8 +24,8 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Chapters | Done | `chapters` table, Player chapter list + prev/next; Podcasting 2.0 `<podcast:chapters>` JSON fetched and parsed (`PodcastChapters`, tested) |
 | Sleep timer | Done | Player 15/30/60 min |
 | Download episodes offline | Done | `Downloader` to external files, playback prefers local file |
-| Notifications new articles | Done | WorkManager `SyncWorker` + notification, per-feed mute flag |
-| Settings | Adapted | Provider, server, credentials (Keystore AES-GCM), sync interval, notify, playback speed persisted |
+| Notifications new articles | Done | WorkManager `SyncWorker` scheduled on every launch (interval or off, Wi-Fi only option), shared `Repository.refreshAll` (local feeds 8 at a time, then provider sync), muted feeds and skip-notification rule excluded from the count, tapping the notification opens the app, retries only when nothing worked |
+| Settings | Adapted | Account (Add provider menu, per-provider sign-in screen that tests before saving, edit, sync now, sign out), Reading, Article lists, Sync and notifications (interval or off, Wi-Fi only, refresh on open, new-article alerts with Android 13 permission), Playback (default speed applied on start, skip silence, SponsorBlock), Discovery keys, About (version, update check). Credentials Keystore AES-GCM |
 | YouTube/Reddit/Lemmy URLs as feeds | Done | `FeedDiscovery.normalizeInput`: channel ID RSS, subreddit `.rss`, Lemmy `/feeds/c|u/*.xml` |
 | Discovery search | Done (partial) | Apple Podcasts (iTunes Search) + gPodder search in Add Feed, no API key; Feedly/NewsBlur search need accounts/keys |
 | Podcast archive, YouTube account recommendations | Desktop-only | Needs yt-dlp + YouTube OAuth scrape; no Android equivalent shipped |
@@ -46,7 +46,9 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Fever (FreshRSS Fever API) | Done (new) | `api_key = md5(user:pass)` | feeds/items/mark, all unread+saved IDs in 50-item chunks; no subscribe endpoint in Fever API |
 | NewsBlur | Done (new) | `newsblur_sessionid` cookie | `/reader/feeds` with flat_folders mapping, per-feed stories, mark read/save |
 
-All provider clients use OkHttp with real endpoints — no stubs. `testLogin()` verifies credentials from Settings.
+All provider clients use OkHttp with real endpoints — no stubs. Sign-in runs `testLogin()` before anything is saved.
+
+Sync (`Repository.syncWith`) mirrors the account: feeds added, renamed, moved or removed on the server; read and favorite state of known articles updated each sync; Fever and NewsBlur also mark local copies read when they leave the server's unread list. Provider feeds are never fetched directly (no duplicates). Add feed subscribes on the server (Fever: stays local, no subscribe API); delete feed unsubscribes first; mark feed read and mark all read are pushed. Switching or signing out turns the old provider's feeds into local feeds. Articles the user deleted do not come back. Fetch windows: Google Reader API newest 200 + 200 starred; Miniflux newest 200 + 500 unread + 200 starred; Fever all unread + saved; NewsBlur 500 unread (by hash) + 5 pages starred. FreshRSS URL accepts the `api/greader.php` root.
 
 ## Accessibility (TalkBack-first, per .firecrawl CVS techniques)
 

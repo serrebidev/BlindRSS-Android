@@ -23,6 +23,11 @@ class MainActivity : ComponentActivity() {
         vmRef = appVm
         appVm.runStartupImports(this)
         handleOAuth(intent)
+        if (savedInstanceState == null) {
+            appVm.refreshOnLaunch()
+            if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
         setContent {
             MaterialTheme {
                 Surface {
@@ -41,6 +46,8 @@ class MainActivity : ComponentActivity() {
                         composable("addfeed") { AddFeedScreen(nav, vm) }
                         composable("player") { PlayerScreen(nav, vm) }
                         composable("settings") { SettingsScreen(nav, vm) }
+                        composable("settings/provider/{type}") { ProviderSetupScreen(nav, vm, org.blindrss.android.settings.ProviderType.valueOf(it.arguments?.getString("type") ?: "MINIFLUX")) }
+                        composable("settings/{section}") { SettingsSectionScreen(nav, vm, it.arguments?.getString("section") ?: "") }
                         composable("categories") { CategoriesScreen(nav, vm) }
                         composable("discover") { DiscoverScreen(nav, vm) }
                         composable("categories/{name}", listOf(navArgument("name") { type = NavType.StringType })) { CategoryArticlesScreen(nav, vm, it.arguments?.getString("name") ?: "") }

@@ -1,6 +1,8 @@
 package org.blindrss.android
 import org.blindrss.android.feed.DiscoverySearch
 import org.blindrss.android.providers.FeverProvider
+import org.blindrss.android.providers.GReaderProvider
+import org.json.JSONObject
 import org.blindrss.android.providers.NewsBlurProvider
 import org.junit.Assert.*
 import org.junit.Test
@@ -24,5 +26,30 @@ class ProviderHelpersTest {
     @Test fun gpodderParse() {
         val hits = DiscoverySearch.parseGpodder("""[{"title":"GP","url":"https://e.com/gp.xml"}]""")
         assertEquals(1, hits.size); assertEquals("GP", hits[0].title)
+    }
+    @Test fun freshRssBaseAddsReaderPath() {
+        assertEquals("https://x.org/api/greader.php/reader/api/0", GReaderProvider.freshRssBase("https://x.org/api/greader.php/"))
+        assertEquals("https://x.org/api/greader.php/reader/api/0", GReaderProvider.freshRssBase("https://x.org/api/greader.php/reader/api/0"))
+    }
+    @Test fun feverEndpoint() {
+        assertEquals("https://x.org/api/fever.php?api", FeverProvider.endpointFor("https://x.org/api/fever.php"))
+        assertEquals("https://x.org/fever/?api", FeverProvider.endpointFor("https://x.org/fever/"))
+    }
+    @Test fun feverGroups() {
+        val j = JSONObject("""{"groups":[{"id":1,"title":"Tech"},{"id":2,"title":"News"}],"feeds_groups":[{"group_id":1,"feed_ids":"3,4"},{"group_id":2,"feed_ids":"5"}]}""")
+        assertEquals(mapOf("3" to "Tech", "4" to "Tech", "5" to "News"), FeverProvider.groupMap(j))
+    }
+    @Test fun greaderItemsPreferContentAndKeepState() {
+        val raw = """{"items":[{"id":"tag:google.com,2005:reader/item/1","origin":{"streamId":"feed/1"},"title":"T","published":10,
+            "summary":{"content":"short"},"content":{"content":"full"},"alternate":[{"href":"https://a"}],"enclosure":[{"href":"https://a.mp3"}],
+            "categories":["user/-/state/com.google/read","user/-/state/com.google/starred"]}]}"""
+        val a = GReaderProvider.parseItems(raw).single()
+        assertEquals("full", a.content); assertEquals("feed/1", a.feedRemoteId); assertEquals("https://a.mp3", a.mediaUrl)
+        assertTrue(a.isRead); assertTrue(a.isFavorite); assertEquals(10_000L, a.date)
+    }
+    @Test fun newsBlurHashesAndStories() {
+        assertEquals(setOf("1:a", "1:b", "2:c"), NewsBlurProvider.parseUnreadHashes("""{"unread_feed_story_hashes":{"1":["1:a","1:b"],"2":["2:c"]}}"""))
+        val s = NewsBlurProvider.parseStories("""{"stories":[{"story_hash":"1:a","story_feed_id":1,"story_title":"T","read_status":0,"starred":true,"story_timestamp":"5"}]}""").single()
+        assertEquals("1:a", s.remoteId); assertEquals("1", s.feedRemoteId); assertFalse(s.isRead); assertTrue(s.isFavorite); assertEquals(5_000L, s.date)
     }
 }

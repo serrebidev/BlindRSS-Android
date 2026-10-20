@@ -16,7 +16,10 @@ import javax.crypto.spec.GCMParameterSpec
 
 private val Context.ds by preferencesDataStore("blindrss_settings")
 
-enum class ProviderType { LOCAL, MINIFLUX, INOREADER, THEOLDREADER, BAZQUX, GREADER, FEVER, NEWSBLUR }
+enum class ProviderType(val label: String) {
+    LOCAL("This device"), MINIFLUX("Miniflux"), INOREADER("Inoreader"), THEOLDREADER("The Old Reader"), BAZQUX("BazQux"),
+    GREADER("FreshRSS (Google Reader API)"), FEVER("Fever API"), NEWSBLUR("NewsBlur")
+}
 
 class SettingsStore(private val ctx: Context) {
     companion object {
@@ -44,6 +47,11 @@ class SettingsStore(private val ctx: Context) {
     suspend fun saveProvider(p: ProviderType, url: String, user: String, secret: String, appId: String = "", appKey: String = "", refresh: String = "") {
         ctx.ds.edit { it[PROVIDER] = p.name; it[SERVER_URL] = url.trimEnd('/'); it[USERNAME] = user; it[SECRET] = if (secret.isEmpty()) "" else encrypt(secret); it[APP_ID] = appId; it[APP_KEY] = appKey; it[REFRESH_TOKEN] = if (refresh.isEmpty()) "" else encrypt(refresh) }
     }
+    suspend fun setActive(p: ProviderType) { ctx.ds.edit { it[PROVIDER] = p.name } }
+    fun flag(name: String, default: Boolean): Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey(name)] ?: default }
+    suspend fun setFlag(name: String, v: Boolean) { ctx.ds.edit { it[booleanPreferencesKey(name)] = v } }
+    val wifiOnly = flag("sync_wifi_only", false)
+    val refreshOnStart = flag("refresh_on_start", false)
     suspend fun setSpeed(v: Float) { ctx.ds.edit { it[PLAYBACK_SPEED] = v } }
     suspend fun setSyncInterval(v: Int) { ctx.ds.edit { it[SYNC_INTERVAL_MIN] = v } }
     suspend fun setNotify(v: Boolean) { ctx.ds.edit { it[NOTIFY_NEW] = v } }

@@ -42,7 +42,7 @@ class PlayerController(private val ctx: Context, private val repo: Repository) {
         val p = player; if (p != null && p.isPlaying) { val pos = p.currentPosition; sponsorSegments.firstOrNull { pos >= it.first && pos < it.second - 500 }?.let { p.seekTo(it.second) } }
         mainHandler.postDelayed(this, 500) } }
     fun ensure() { if (player == null) { player = ExoPlayer.Builder(ctx).build(); player!!.addListener(object : Player.Listener { override fun onIsPlayingChanged(p: Boolean) { _playing.value = p } })
-        CoroutineScope(Dispatchers.Main).launch { try { player!!.skipSilenceEnabled = repo.settings.skipSilence.first()
+        CoroutineScope(Dispatchers.Main).launch { try { player!!.skipSilenceEnabled = repo.settings.skipSilence.first(); setSpeed(repo.settings.playbackSpeed.first())
             val bands = repo.settings.eqBands.first(); val enabled = repo.settings.eqEnabled.first()
             if (enabled || bands.isNotEmpty()) applyEqualizer(enabled, bands) } catch (_: Exception) {} }
         mainHandler.removeCallbacks(sponsorTick); mainHandler.post(sponsorTick) } }

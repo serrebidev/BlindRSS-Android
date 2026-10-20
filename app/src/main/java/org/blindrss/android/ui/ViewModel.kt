@@ -14,15 +14,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val repo = Repository(app)
     val player = PlayerController(app, repo)
     val announcements = MutableStateFlow("")
-    private fun announce(msg: String) { announcements.value = msg }
+    fun announce(msg: String) { announcements.value = msg }
     val feeds: StateFlow<List<FeedEntity>> = repo.feeds.observeAll().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val errorFeeds: StateFlow<List<FeedEntity>> = repo.feeds.observeErrors().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val unreadCount: StateFlow<Int> = repo.articles.unreadCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun addFeed(url: String, category: String = "Uncategorized") { viewModelScope.launch { try { val f = repo.addFeed(url, category); announce("Subscribed to ${f.title}") } catch (e: Exception) { announce("Error adding feed: ${e.message}") } } }
-    fun refreshAll() { viewModelScope.launch { var total = 0; var errs = 0; for (f in repo.feeds.all()) { try { total += repo.refreshFeed(f) } catch (_: Exception) { errs++ } }; try { repo.syncProvider() } catch (_: Exception) {}; announce(if (errs > 0) "Refresh complete. $total new articles. $errs feeds with errors." else "Refresh complete. $total new articles."); SyncWorker.schedule(getApplication(), repo.settings.syncInterval.first()) } }
-    fun refreshFeed(f: FeedEntity) { viewModelScope.launch { try { val n = repo.refreshFeed(f); announce("Refreshed ${f.title}. $n new articles.") } catch (e: Exception) { announce("Error refreshing ${f.title}: ${e.message}") } } }
-    fun deleteFeed(f: FeedEntity) { viewModelScope.launch { repo.feeds.delete(f); announce("Deleted feed ${f.title}") } }
+    fun refreshAll() { viewModelScope.launch { announce("Refreshing"); val r = repo.refreshAll()
+        announce(buildString { append("Refresh complete. ${r.newArticles} new articles.")
+            if (r.failedFeeds > 0) append(" ${r.failedFeeds} feeds with errors."); r.providerError?.let { append(" Sync failed: $it") } }) } }
+    // Background sync is scheduled on every launch so it runs without a manual refresh first.
+    fun refreshOnLaunch() { viewModelScope.launch { SyncWorker.schedule(getApplication()); if (repo.settings.refreshOnStart.first()) refreshAll() } }
+    fun syncNow() { viewModelScope.launch { announce("Syncing"); announce(try { repo.syncProvider() } catch (e: Exception) { "Sync failed: ${e.message}" }) } }
+    // Provider feeds come only through the provider; fetching them directly would duplicate articles.
+    fun refreshFeed(f: FeedEntity) { if (f.remoteId != null) return syncNow(); viewModelScope.launch { try { val n = repo.refreshFeed(f); announce("Refreshed ${f.title}. $n new articles.") } catch (e: Exception) { announce("Error refreshing ${f.title}: ${e.message}") } } }
+    fun deleteFeed(f: FeedEntity) { viewModelScope.launch { try { repo.deleteFeed(f); announce("Deleted feed ${f.title}") } catch (e: Exception) { announce("Could not delete ${f.title}: ${e.message}") } } }
     fun toggleMute(f: FeedEntity) { viewModelScope.launch { repo.feeds.update(f.copy(muted = !f.muted)); announce(if (f.muted) "Notifications on for ${f.title}" else "Notifications muted for ${f.title}") } }
     fun setRead(a: ArticleEntity, read: Boolean) { viewModelScope.launch { repo.articles.setRead(a.id, read); repo.pushRead(a, read); announce(if (read) "Marked read: ${a.title}" else "Marked unread: ${a.title}") } }
     fun toggleFavorite(a: ArticleEntity) { viewModelScope.launch { repo.articles.setFavorite(a.id, !a.isFavorite); repo.pushFavorite(a, !a.isFavorite); announce(if (!a.isFavorite) "Favorited: ${a.title}" else "Removed favorite: ${a.title}") } }
@@ -30,8 +36,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun restoreDeleted(id: String) { viewModelScope.launch { repo.restoreDeleted(id); announce("Article restored") } }
     fun purgeDeleted(id: String) { viewModelScope.launch { repo.misc.purgeDeleted(id); announce("Article permanently deleted") } }
     fun purgeAllDeleted() { viewModelScope.launch { repo.misc.purgeAllDeleted(); announce("All deleted articles purged") } }
-    fun markAllRead() { viewModelScope.launch { repo.articles.markAllRead(); announce("All articles marked read") } }
-    fun markFeedRead(f: FeedEntity) { viewModelScope.launch { repo.articles.markFeedRead(f.id); announce("Marked all read in ${f.title}") } }
+    fun markAllRead() { viewModelScope.launch { repo.markAllRead(); announce("All articles marked read") } }
+    fun markFeedRead(f: FeedEntity) { viewModelScope.launch { repo.markFeedRead(f); announce("Marked all read in ${f.title}") } }
     fun importOpml(xml: String) { viewModelScope.launch { val n = repo.importOpml(xml); announce("Imported $n feeds from OPML") } }
     fun play(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: a.url; player.loadSponsorBlock(a.url); player.play(a.id, url, a.title); announce("Playing: ${a.title}") } }
     fun download(a: ArticleEntity) { viewModelScope.launch { val url = a.mediaUrl ?: return@launch announce("No media to download"); try { Downloader.downloadEpisode(getApplication(), repo, a.id, url); announce("Downloaded episode: ${a.title}") } catch (e: Exception) { announce("Download failed: ${e.message}") } } }
