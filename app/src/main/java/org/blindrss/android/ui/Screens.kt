@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -134,7 +135,7 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
         Column(Modifier.padding(pad)) {
             LiveAnnouncer(vm)
             Text("$unread unread articles", Modifier.padding(16.dp).semantics { contentDescription = "$unread unread articles" })
-            val views = listOf(Triple("All Articles", "articles/all", Icons.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.Filled.Label), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Downloads and Player", "player", Icons.Filled.PlayCircle))
+            val views = listOf(Triple("All Articles", "articles/all", Icons.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.Filled.Label), Triple("Discover News Sources", "discover", Icons.Filled.Explore), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Downloads and Player", "player", Icons.Filled.PlayCircle))
             LazyColumn {
                 items(views) { (label, route, icon) ->
                     ListItem(headlineContent = { Text(label) }, leadingContent = { Icon(icon, null) }, modifier = Modifier.clickable { nav.navigate(route) }.semantics { contentDescription = "Open $label"; role = Role.Button })
@@ -417,6 +418,82 @@ fun CategoryArticlesScreen(nav: NavController, vm: AppViewModel, name: String) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun DiscoverRow(s: org.blindrss.android.discovery.DiscoveredSource, selected: Boolean, vm: AppViewModel) {
+    var menu by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    Box(Modifier.fillMaxWidth()) {
+        ListItem(
+            headlineContent = { Text(s.name) },
+            supportingContent = { Text(buildString { append(s.provider); if (s.category.isNotBlank()) append(" · ").append(s.category); append(if (s.subscribed) " · Already subscribed" else " · Not subscribed"); if (selected) append(" · Selected"); if (s.isGoogleNews) append(" · Search feed, not a single publisher"); if (s.feedUrl != null && !s.verified) append(" · Feed not yet verified") }) },
+            modifier = Modifier.combinedClickable(onClick = { vm.previewDiscover(s) }, onLongClick = { menu = true })
+                .semantics(mergeDescendants = true) {
+                    contentDescription = s.describe() + if (selected) " Selected." else "" + " Double tap to preview. Double tap and hold for actions."
+                    role = Role.Button
+                    stateDescription = when { s.subscribed -> "Subscribed"; selected -> "Selected"; else -> "Not subscribed" }
+                    customActions = listOf(
+                        CustomAccessibilityAction("Preview") { vm.previewDiscover(s); true },
+                        CustomAccessibilityAction(if (s.subscribed) "Unsubscribe" else "Subscribe") { vm.toggleSubscribeDiscover(s); true },
+                        CustomAccessibilityAction(if (selected) "Remove from selection" else "Select for batch subscribe") { vm.toggleDiscoverSelect(s); true }
+                    ) + if (s.homepage.isNotBlank()) listOf(CustomAccessibilityAction("Open website") { vm.launchBrowser(ctx, s.homepage); true }) else emptyList()
+                })
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem({ Text("Preview") }, { menu = false; vm.previewDiscover(s) })
+            DropdownMenuItem({ Text(if (s.subscribed) "Unsubscribe" else "Subscribe") }, { menu = false; vm.toggleSubscribeDiscover(s) })
+            DropdownMenuItem({ Text(if (selected) "Remove from selection" else "Select for batch subscribe") }, { menu = false; vm.toggleDiscoverSelect(s) })
+            if (s.homepage.isNotBlank()) DropdownMenuItem({ Text("Open website") }, { menu = false; vm.launchBrowser(ctx, s.homepage) })
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DiscoverScreen(nav: NavController, vm: AppViewModel) {
+    var query by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("Canada") }
+    var country by remember { mutableStateOf("CA") }; var language by remember { mutableStateOf("en") }
+    var city by remember { mutableStateOf("") }; var region by remember { mutableStateOf("") }
+    val results by vm.discoverResults.collectAsState(); val loading by vm.discoverLoading.collectAsState()
+    val selected by vm.discoverSelected.collectAsState(); val preview by vm.discoverPreview.collectAsState()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { country = vm.repo.settings.discoveryCountry.first(); language = vm.repo.settings.discoveryLanguage.first(); city = vm.repo.settings.discoveryCity.first(); region = vm.repo.settings.discoveryRegion.first(); vm.loadCatalogue(); vm.browseDiscover(category) }
+    val categories = listOf("General news", "World", "Canada", "Local news", "Politics", "Business", "Technology", "Science", "Health", "Entertainment", "Sports", "Gaming")
+    Scaffold(topBar = { TopAppBar(title = { Text("Discover News Sources", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.Filled.ArrowBack, null) } }) }) { pad ->
+        Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LiveAnnouncer(vm)
+            OutlinedTextField(query, { query = it }, label = { Text("Publisher name, topic, or website URL") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search publishers by name, topic, or website URL" }, singleLine = true)
+            Button(onClick = { vm.searchDiscover(query) }, Modifier.fillMaxWidth().semantics { contentDescription = "Search discovery sources" }) { Text(if (loading) "Searching..." else "Search") }
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "Searching" })
+            Text("Categories", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { items(categories) { c -> FilterChip(category == c, { category = c; vm.browseDiscover(c) }, { Text(c) }, modifier = Modifier.semantics { contentDescription = "Browse category $c" }) } }
+            Text("Country and language", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { items(listOf("CA" to "Canada", "US" to "USA", "GB" to "UK", "AU" to "Australia", "FR" to "France", "DE" to "Germany")) { (code, label) -> FilterChip(country == code, { country = code; scope.launch { vm.repo.settings.setDiscoveryLocale(code, language, city, region) }; vm.browseDiscover(category) }, { Text(label) }, modifier = Modifier.semantics { contentDescription = "Country $label" }) } }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { items(listOf("en" to "English", "fr" to "Français", "es" to "Español", "de" to "Deutsch")) { (code, label) -> FilterChip(language == code, { language = code; scope.launch { vm.repo.settings.setDiscoveryLocale(country, code, city, region) }; vm.browseDiscover(category) }, { Text(label) }, modifier = Modifier.semantics { contentDescription = "Language $label" }) } }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(city, { city = it }, label = { Text("City (for local news)") }, modifier = Modifier.weight(1f).semantics { contentDescription = "City for local news, for example Maple Ridge" }, singleLine = true)
+                OutlinedTextField(region, { region = it }, label = { Text("Region") }, modifier = Modifier.weight(1f).semantics { contentDescription = "Region or province for local news, for example BC" }, singleLine = true)
+            }
+            Button(onClick = { scope.launch { vm.repo.settings.setDiscoveryLocale(country, language, city, region) }; category = "Local news"; vm.browseDiscover("Local news") }, Modifier.fillMaxWidth().semantics { contentDescription = "Save location and show local news" }) { Text("Save location and show local news") }
+            if (selected.isNotEmpty()) Button(onClick = { vm.subscribeDiscover(results.filter { it.feedUrl in selected }) }, Modifier.fillMaxWidth().semantics { contentDescription = "Subscribe to ${selected.size} selected sources" }) { Text("Subscribe to ${selected.size} selected") }
+            preview?.let { (src, titles) ->
+                Card(Modifier.fillMaxWidth().semantics { contentDescription = "Preview of ${src.name}" }) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(src.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+                    if (src.description.isNotBlank()) Text(src.description, style = MaterialTheme.typography.bodySmall)
+                    Text(if (src.verified) "Verified feed: ${src.feedUrl}" else "Feed: ${src.feedUrl}", style = MaterialTheme.typography.bodySmall)
+                    titles.forEach { t -> Text("• $t", style = MaterialTheme.typography.bodyMedium) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { vm.toggleSubscribeDiscover(src) }, Modifier.semantics { contentDescription = if (src.subscribed) "Unsubscribe from ${src.name}" else "Subscribe to ${src.name}" }) { Text(if (src.subscribed) "Unsubscribe" else "Subscribe") }
+                        Button(onClick = { vm.discoverPreview.value = null }, Modifier.semantics { contentDescription = "Close preview" }) { Text("Close preview") }
+                    }
+                } }
+            }
+            Text("${results.size} sources", style = MaterialTheme.typography.labelMedium, modifier = Modifier.semantics { contentDescription = "${results.size} sources found" })
+            LazyColumn { items(results, key = { (it.feedUrl ?: it.name) + it.provider }) { s -> DiscoverRow(s, s.feedUrl != null && s.feedUrl in selected, vm); HorizontalDivider() } }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(nav: NavController, vm: AppViewModel) {
@@ -456,6 +533,12 @@ fun SettingsScreen(nav: NavController, vm: AppViewModel) {
             item { Text("Background sync", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 Row { listOf(15, 30, 60, 240).forEach { m -> FilterChip(syncInterval == m, { syncInterval = m; scope.launch { vm.repo.settings.setSyncInterval(m); org.blindrss.android.sync.SyncWorker.schedule(nav.context, m) } }, { Text("$m min") }, modifier = Modifier.semantics { contentDescription = "Sync every $m minutes" }) } }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Notify on new articles"); Switch(notify, { notify = it; scope.launch { vm.repo.settings.setNotify(it) } }, Modifier.semantics { contentDescription = "Notify on new articles switch" }) } }
+            item { Text("Discovery API keys (optional)", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
+                Text("NewsAPI.org and The News API list publishers but do not provide RSS feeds. BlindRSS finds each publisher's feed from its website and only shows verified feeds. Keys are stored encrypted. Leave blank to skip these providers.", style = MaterialTheme.typography.bodySmall)
+                var nak by remember { mutableStateOf("") }; var tnak by remember { mutableStateOf("") }
+                OutlinedTextField(nak, { nak = it }, label = { Text("NewsAPI.org API key") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "NewsAPI.org API key" }, singleLine = true)
+                OutlinedTextField(tnak, { tnak = it }, label = { Text("The News API token") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "The News API token" }, singleLine = true)
+                Button(onClick = { scope.launch { val oldN = vm.repo.settings.newsApiKey(); val oldT = vm.repo.settings.theNewsApiKey(); vm.repo.settings.setApiKeys(nak.ifEmpty { oldN }, tnak.ifEmpty { oldT }); status = "Discovery API keys saved" } }, Modifier.fillMaxWidth().semantics { contentDescription = "Save discovery API keys" }) { Text("Save discovery API keys") } }
             item { val uctx = LocalContext.current
                 Button(onClick = { scope.launch { status = "Checking for updates..."; val latest = org.blindrss.android.feed.UpdateCheck.latestVersion(); val current = try { uctx.packageManager.getPackageInfo(uctx.packageName, 0).versionName ?: "1.0.0" } catch (_: Exception) { "1.0.0" }; status = when { latest == null -> "Update check failed (offline?)"; latest == current -> "Up to date ($current)"; else -> "Update available: $latest (installed $current). Get it from GitHub releases." } } }, Modifier.fillMaxWidth().semantics { contentDescription = "Check for app updates" }) { Text("Check for updates") } }
             item { if (status.isNotEmpty()) Text(status, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }

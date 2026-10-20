@@ -62,6 +62,15 @@ class SettingsStore(private val ctx: Context) {
     // Where YouTube links open: YOUTUBE_APP, SMARTTUBE, BROWSER, IN_APP.
     val youtubeOpenMode: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("youtube_open_mode")] ?: "YOUTUBE_APP" }
     suspend fun setYoutubeOpenMode(v: String) { ctx.ds.edit { it[stringPreferencesKey("youtube_open_mode")] = v } }
+    // Discovery preferences and optional directory API keys (keys encrypted).
+    val discoveryCountry: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("discovery_country")] ?: "CA" }
+    val discoveryLanguage: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("discovery_language")] ?: "en" }
+    val discoveryCity: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("discovery_city")] ?: "" }
+    val discoveryRegion: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("discovery_region")] ?: "" }
+    suspend fun setDiscoveryLocale(country: String, language: String, city: String, region: String) { ctx.ds.edit { it[stringPreferencesKey("discovery_country")] = country; it[stringPreferencesKey("discovery_language")] = language; it[stringPreferencesKey("discovery_city")] = city; it[stringPreferencesKey("discovery_region")] = region } }
+    suspend fun newsApiKey(): String { val v = ctx.ds.data.first()[stringPreferencesKey("newsapi_key_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+    suspend fun theNewsApiKey(): String { val v = ctx.ds.data.first()[stringPreferencesKey("thenewsapi_key_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+    suspend fun setApiKeys(newsApi: String, theNewsApi: String) { ctx.ds.edit { it[stringPreferencesKey("newsapi_key_enc")] = if (newsApi.isEmpty()) "" else encrypt(newsApi); it[stringPreferencesKey("thenewsapi_key_enc")] = if (theNewsApi.isEmpty()) "" else encrypt(theNewsApi) } }
     val skipSilence: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("skip_silence")] ?: true }
     val sponsorBlock: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("sponsorblock")] ?: true }
     val eqEnabled: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("eq_enabled")] ?: false }

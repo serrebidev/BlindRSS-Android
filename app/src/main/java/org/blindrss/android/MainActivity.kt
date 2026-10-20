@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
                         composable("player") { PlayerScreen(nav, vm) }
                         composable("settings") { SettingsScreen(nav, vm) }
                         composable("categories") { CategoriesScreen(nav, vm) }
+                        composable("discover") { DiscoverScreen(nav, vm) }
                         composable("categories/{name}", listOf(navArgument("name") { type = NavType.StringType })) { CategoryArticlesScreen(nav, vm, it.arguments?.getString("name") ?: "") }
                     }
                 }

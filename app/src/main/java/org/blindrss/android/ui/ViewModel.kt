@@ -68,6 +68,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             "BROWSER", "IN_APP" -> launchBrowser(ctx, a.url)
             else -> if (!launchPackage(ctx, a.url, listOf("com.google.android.youtube"))) launchBrowser(ctx, a.url)
         } } }
+    // ---- News publisher discovery ----
+    val discoverResults = MutableStateFlow<List<org.blindrss.android.discovery.DiscoveredSource>>(emptyList())
+    val discoverLoading = MutableStateFlow(false)
+    val discoverSelected = MutableStateFlow<Set<String>>(emptySet())
+    val discoverPreview = MutableStateFlow<Pair<org.blindrss.android.discovery.DiscoveredSource, List<String>>?>(null)
+    private var catalogue: List<org.blindrss.android.discovery.DiscoveredSource> = emptyList()
+    private var discoverJob: kotlinx.coroutines.Job? = null
+    fun loadCatalogue() { viewModelScope.launch { catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication()); catalogue = org.blindrss.android.discovery.AwesomeCatalogue.refreshIfStale(getApplication()) } }
+    fun browseDiscover(category: String) { viewModelScope.launch {
+        val country = repo.settings.discoveryCountry.first(); val lang = repo.settings.discoveryLanguage.first()
+        val city = repo.settings.discoveryCity.first(); val region = repo.settings.discoveryRegion.first()
+        if (catalogue.isEmpty()) catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication())
+        val local = org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, "", category, if (category == "Canada" || category == "Local news") country else "", "")
+        val google = org.blindrss.android.discovery.GoogleNewsUrls.sourcesFor(category, country, lang, city, region)
+        setDiscoverResults(google + local) } }
+    fun searchDiscover(query: String) {
+        discoverJob?.cancel()
+        discoverJob = viewModelScope.launch {
+            discoverLoading.value = true
+            try {
+                val country = repo.settings.discoveryCountry.first(); val lang = repo.settings.discoveryLanguage.first()
+                val out = mutableListOf<org.blindrss.android.discovery.DiscoveredSource>()
+                val q = query.trim()
+                if (q.isNotEmpty()) {
+                    out += org.blindrss.android.discovery.GoogleNewsUrls.searchSource(q, country, lang)
+                    try { out += org.blindrss.android.discovery.FeedlyDiscovery.search(q, "$lang-$country") } catch (_: Exception) {}
+                    if (catalogue.isEmpty()) catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication())
+                    out += org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, q, "", "", "")
+                    if (q.contains(".") && !q.contains(" ")) { try { out += org.blindrss.android.discovery.WebsiteDiscovery.discover(q) } catch (_: Exception) {} }
+                    try { out += org.blindrss.android.discovery.NewsApisDiscovery.search(q, repo.settings.newsApiKey(), repo.settings.theNewsApiKey()) } catch (_: Exception) {}
+                }
+                setDiscoverResults(out)
+                announce("Discovery search finished. ${discoverResults.value.size} sources found.")
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { announce("Discovery search failed: ${e.message}") }
+            finally { discoverLoading.value = false }
+        }
+    }
+    private suspend fun setDiscoverResults(list: List<org.blindrss.android.discovery.DiscoveredSource>) {
+        val subs = repo.feeds.all().map { it.url }
+        discoverResults.value = org.blindrss.android.discovery.DiscoveryAggregator.markSubscribed(org.blindrss.android.discovery.DiscoveryAggregator.dedup(list), subs)
+    }
+    fun toggleDiscoverSelect(s: org.blindrss.android.discovery.DiscoveredSource) { val u = s.feedUrl ?: return; discoverSelected.value = if (u in discoverSelected.value) discoverSelected.value - u else discoverSelected.value + u }
+    fun previewDiscover(s: org.blindrss.android.discovery.DiscoveredSource) { viewModelScope.launch {
+        val url = s.feedUrl ?: return@launch announce("No feed to preview")
+        try { val parsed = org.blindrss.android.feed.FeedParser.parse(repo.fetchText(url), url)
+            discoverPreview.value = s.copy(name = parsed.title.ifBlank { s.name }, verified = true) to parsed.articles.take(5).map { it.title }
+            announce("Previewing ${parsed.title}. ${parsed.articles.size} recent articles.") } catch (e: Exception) { announce("Preview failed. This feed could not be read: ${e.message}") } } }
+    fun subscribeDiscover(sources: List<org.blindrss.android.discovery.DiscoveredSource>) { viewModelScope.launch {
+        var ok = 0; var failed = 0
+        for (s in sources) { val u = s.feedUrl ?: continue
+            try { repo.addFeed(u, s.category.ifBlank { "News" }); ok++ } catch (_: Exception) { failed++ } }
+        discoverSelected.value = emptySet()
+        val subs = repo.feeds.all().map { it.url }
+        discoverResults.value = org.blindrss.android.discovery.DiscoveryAggregator.markSubscribed(discoverResults.value, subs)
+        announce("Subscribed to $ok sources." + if (failed > 0) " $failed failed." else "") } }
+    fun toggleSubscribeDiscover(s: org.blindrss.android.discovery.DiscoveredSource) { viewModelScope.launch {
+        if (s.subscribed) { repo.feeds.all().firstOrNull { org.blindrss.android.discovery.UrlSafety.canonicalFeedUrl(it.url) == org.blindrss.android.discovery.UrlSafety.canonicalFeedUrl(s.feedUrl ?: "") }?.let { repo.feeds.delete(it) }
+            discoverResults.value = discoverResults.value.map { if (it.feedUrl == s.feedUrl) it.copy(subscribed = false) else it }; announce("Unsubscribed from ${s.name}") }
+        else subscribeDiscover(listOf(s)) } }
     fun exchangeOAuth(code: String) { viewModelScope.launch { try { announce(repo.exchangeInoreaderCode(code)); val s = repo.syncProvider(); announce(s) } catch (e: Exception) { announce("Inoreader connect failed: ${e.message}") } } }
     val castDevices = MutableStateFlow<List<org.blindrss.android.cast.DlnaDevice>>(emptyList())
     var castTarget: org.blindrss.android.cast.DlnaDevice? = null
