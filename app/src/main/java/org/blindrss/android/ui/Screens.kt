@@ -41,16 +41,20 @@ fun LiveAnnouncer(vm: AppViewModel) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, onReadInApp: () -> Unit = onOpen, vm: AppViewModel) {
+fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, onReadInApp: () -> Unit = onOpen, vm: AppViewModel, prefs: ListReadingPrefs = ListReadingPrefs()) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     val feedTitle = feeds.firstOrNull { it.id == a.feedId }?.title ?: ""
     val dateStr = DateFormat.getDateInstance().format(Date(a.date))
     val state = buildString { if (!a.isRead) append("Unread. "); if (a.isFavorite) append("Favorite. "); if (a.mediaUrl != null) append("Has media. ") }
+    // Reading order (user-configurable): title, source, info, article text, status.
+    val speech = ListReading.articleSpeech(a.title, feedTitle, a.author, dateStr,
+        stripHtml(a.description), stripHtml(a.content.ifBlank { a.description }),
+        a.isRead, a.isFavorite, a.mediaUrl != null, prefs)
     Box(Modifier.fillMaxWidth()) {
         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).semantics(mergeDescendants = true) {
-            contentDescription = "${a.title}. $feedTitle. $dateStr. $state Double tap to open. Double tap and hold for actions."
-            stateDescription = state.ifBlank { "Read" }
+            contentDescription = "$speech Double tap to open. Double tap and hold for actions."
+            stateDescription = if (a.isRead) "Read" else "Unread"
             customActions = listOf(
                 CustomAccessibilityAction(if (a.isRead) "Mark unread" else "Mark read") { vm.setRead(a, !a.isRead); true },
                 CustomAccessibilityAction(if (a.isFavorite) "Remove favorite" else "Add favorite") { vm.toggleFavorite(a); true },
@@ -87,8 +91,9 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
 @Composable
 fun ArticleList(articles: List<ArticleEntity>, feeds: List<FeedEntity>, nav: NavController, vm: AppViewModel, emptyText: String) {
     val ctx = LocalContext.current
+    val prefs by vm.repo.settings.listPrefs.collectAsState(ListReadingPrefs())
     if (articles.isEmpty()) { Text(emptyText, Modifier.padding(16.dp).semantics { contentDescription = emptyText }); return }
-    LazyColumn { items(articles, key = { it.id }) { a -> ArticleRow(a, feeds, onOpen = { vm.openArticle(ctx, a, nav) }, onReadInApp = { nav.navigate("reader/${Uri.encode(a.id)}") }, vm = vm) } }
+    LazyColumn { items(articles, key = { it.id }) { a -> ArticleRow(a, feeds, onOpen = { vm.openArticle(ctx, a, nav) }, onReadInApp = { nav.navigate("reader/${Uri.encode(a.id)}") }, vm = vm, prefs = prefs) } }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -529,7 +534,29 @@ fun SettingsScreen(nav: NavController, vm: AppViewModel) {
                 Text("When I open a YouTube video", style = MaterialTheme.typography.bodyMedium)
                 listOf("YOUTUBE_APP" to "YouTube app", "SMARTTUBE" to "SmartTube", "BROWSER" to "Browser", "IN_APP" to "Read or play in app").forEach { (v, l) ->
                     Row(Modifier.clickable { ytMode = v; scope.launch { vm.repo.settings.setYoutubeOpenMode(v) } }.semantics { contentDescription = "YouTube opens in: $l"; role = Role.RadioButton; selected = ytMode == v }) { RadioButton(ytMode == v, { ytMode = v; scope.launch { vm.repo.settings.setYoutubeOpenMode(v) } }, Modifier.semantics { contentDescription = "Select: $l" }); Text(l) } }
-                Text("If the chosen video app is not installed, BlindRSS opens your browser instead.", style = MaterialTheme.typography.bodySmall) }
+                Text("If the chosen video app is not installed, BlindRSS opens your browser instead.", style = MaterialTheme.typography.bodySmall)
+                Text("How article lists are read", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { heading() })
+                Text("Lists read in this order: article name, where it is from, other info, the article text, then read or unread at the end. Turn parts on or off below.", style = MaterialTheme.typography.bodySmall)
+                var lp by remember { mutableStateOf(ListReadingPrefs()) }
+                LaunchedEffect(Unit) { lp = vm.repo.settings.listPrefs.first() }
+                fun save(p: ListReadingPrefs) { lp = p; scope.launch { vm.repo.settings.setListPrefs(p) } }
+                listOf(
+                    Triple("Read source (where it is from)", lp.readSource, { v: Boolean -> save(lp.copy(readSource = v)) }),
+                    Triple("Read author", lp.readAuthor, { v: Boolean -> save(lp.copy(readAuthor = v)) }),
+                    Triple("Read date", lp.readDate, { v: Boolean -> save(lp.copy(readDate = v)) }),
+                    Triple("Read article text in lists", lp.readText, { v: Boolean -> save(lp.copy(readText = v)) }),
+                    Triple("Read favorite and media flags", lp.readFlags, { v: Boolean -> save(lp.copy(readFlags = v)) })
+                ).forEach { (label, value, set) ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Switch(value, { set(it) }, Modifier.semantics { contentDescription = "$label switch" }) }
+                }
+                if (lp.readText) {
+                    Text("How much article text to read", style = MaterialTheme.typography.bodyMedium)
+                    listOf("FULL" to "Full text (whole article)", "PARTIAL" to "First part (600 characters)", "SUMMARY" to "Summary only").forEach { (v, l) ->
+                        Row(Modifier.clickable { save(lp.copy(textAmount = v)) }.semantics { contentDescription = "Article text amount: $l"; role = Role.RadioButton; selected = lp.textAmount == v }) { RadioButton(lp.textAmount == v, { save(lp.copy(textAmount = v)) }, Modifier.semantics { contentDescription = "Select: $l" }); Text(l) } }
+                }
+                Text("Read or unread position", style = MaterialTheme.typography.bodyMedium)
+                listOf("END" to "At the end, after the article text", "START" to "At the start, right after the name", "OFF" to "Do not read it in lists").forEach { (v, l) ->
+                    Row(Modifier.clickable { save(lp.copy(statusPosition = v)) }.semantics { contentDescription = "Read status position: $l"; role = Role.RadioButton; selected = lp.statusPosition == v }) { RadioButton(lp.statusPosition == v, { save(lp.copy(statusPosition = v)) }, Modifier.semantics { contentDescription = "Select: $l" }); Text(l) } } }
             item { Text("Background sync", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
                 Row { listOf(15, 30, 60, 240).forEach { m -> FilterChip(syncInterval == m, { syncInterval = m; scope.launch { vm.repo.settings.setSyncInterval(m); org.blindrss.android.sync.SyncWorker.schedule(nav.context, m) } }, { Text("$m min") }, modifier = Modifier.semantics { contentDescription = "Sync every $m minutes" }) } }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Notify on new articles"); Switch(notify, { notify = it; scope.launch { vm.repo.settings.setNotify(it) } }, Modifier.semantics { contentDescription = "Notify on new articles switch" }) } }

@@ -71,6 +71,17 @@ class SettingsStore(private val ctx: Context) {
     suspend fun newsApiKey(): String { val v = ctx.ds.data.first()[stringPreferencesKey("newsapi_key_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
     suspend fun theNewsApiKey(): String { val v = ctx.ds.data.first()[stringPreferencesKey("thenewsapi_key_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
     suspend fun setApiKeys(newsApi: String, theNewsApi: String) { ctx.ds.edit { it[stringPreferencesKey("newsapi_key_enc")] = if (newsApi.isEmpty()) "" else encrypt(newsApi); it[stringPreferencesKey("thenewsapi_key_enc")] = if (theNewsApi.isEmpty()) "" else encrypt(theNewsApi) } }
+    // How article lists are read (Settings > Reading).
+    val listPrefs: Flow<org.blindrss.android.ui.ListReadingPrefs> = ctx.ds.data.map { p ->
+        org.blindrss.android.ui.ListReadingPrefs(
+            readSource = p[booleanPreferencesKey("list_read_source")] ?: true,
+            readAuthor = p[booleanPreferencesKey("list_read_author")] ?: true,
+            readDate = p[booleanPreferencesKey("list_read_date")] ?: true,
+            readText = p[booleanPreferencesKey("list_read_text")] ?: true,
+            textAmount = p[stringPreferencesKey("list_text_amount")] ?: "FULL",
+            readFlags = p[booleanPreferencesKey("list_read_flags")] ?: true,
+            statusPosition = p[stringPreferencesKey("list_status_position")] ?: "END") }
+    suspend fun setListPrefs(prefs: org.blindrss.android.ui.ListReadingPrefs) { ctx.ds.edit { it[booleanPreferencesKey("list_read_source")] = prefs.readSource; it[booleanPreferencesKey("list_read_author")] = prefs.readAuthor; it[booleanPreferencesKey("list_read_date")] = prefs.readDate; it[booleanPreferencesKey("list_read_text")] = prefs.readText; it[stringPreferencesKey("list_text_amount")] = prefs.textAmount; it[booleanPreferencesKey("list_read_flags")] = prefs.readFlags; it[stringPreferencesKey("list_status_position")] = prefs.statusPosition } }
     val skipSilence: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("skip_silence")] ?: true }
     val sponsorBlock: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("sponsorblock")] ?: true }
     val eqEnabled: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("eq_enabled")] ?: false }
