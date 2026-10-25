@@ -151,6 +151,35 @@ fun ProviderSetupScreen(nav: NavController, vm: AppViewModel, type: ProviderType
     }
 }
 
+// Feed properties: rename, move to another category, and for local feeds change the address.
+@Composable
+fun EditFeedScreen(nav: NavController, vm: AppViewModel, feedId: Long) {
+    val active by vm.repo.settings.provider.collectAsState(ProviderType.LOCAL); val all by vm.feeds.collectAsState()
+    var feed by remember { mutableStateOf<org.blindrss.android.data.FeedEntity?>(null) }
+    var title by remember { mutableStateOf("") }; var category by remember { mutableStateOf("") }; var url by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(feedId) { vm.repo.feeds.byId(feedId)?.let { feed = it; title = it.title; category = it.category; url = it.url } ?: run { status = "This feed no longer exists." } }
+    val categories = remember(all) { (all.map { it.category } + "Uncategorized").distinct().sortedBy { it.lowercase() } }
+    SettingsPage("Edit feed", nav, vm) {
+        val f = feed
+        if (f == null) { item { Status(status.ifEmpty { "Loading" }) }; return@SettingsPage }
+        if (f.remoteId != null && active == ProviderType.FEVER) { item { Note("Fever cannot rename or move feeds. Change them on your server.") }; return@SettingsPage }
+        item { Field("Title", title) { title = it } }
+        item { Field("Category", category) { category = it }; Note("Type a new category, or pick one below.") }
+        item { Choices("Existing categories", categories.map { it to it }, category.trim()) { category = it } }
+        if (f.remoteId == null) item { Heading("Address"); Field("Feed address", url, KeyboardType.Uri) { url = it }; Note("A website address works too. The new address is checked before saving, and articles you already have keep their read state.") }
+        else item { Note("The feed address is managed by ${active.label}.") }
+        item { Spacer(Modifier.height(8.dp))
+            WideButton(if (busy) "Saving" else "Save", !busy) {
+                busy = true; status = "Saving"
+                vm.updateFeed(f, title, category, url) { err ->
+                    if (err != null) { status = "Not saved. $err"; busy = false }
+                    // Only leave this screen if the user is still on it.
+                    else if (nav.currentDestination?.route == "feed/edit/{id}") nav.popBackStack() } } }
+        item { Status(status) }
+    }
+}
+
 private fun friendlyError(e: Exception): String { val m = e.message.orEmpty()
     return when {
         "HTTP 401" in m || "HTTP 403" in m || "auth failed" in m -> "Wrong username, password or key."

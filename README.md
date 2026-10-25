@@ -20,6 +20,7 @@ Debug APK: `app/build/outputs/apk/debug/app-debug.apk` (signed with debug key).
 - Local RSS/Atom/RDF/JSON-Feed, OPML import/export, URL feed discovery (incl. YouTube/Reddit/Lemmy shortcuts)
 - Hosted sync: Miniflux, Inoreader, The Old Reader, BazQux, Feedbin, Google Reader/FreshRSS, Fever, NewsBlur
 - All/Unread/Read/Favorites, categories, Smart Folders, Deleted restore/purge, Feeds-with-errors, filter rules
+- Edit feed: rename, move to another category, change a local feed's address (synced to your provider)
 - Full-text extraction, search, podcast playback (speed, seek, chapters, sleep timer, offline downloads, resume)
 - Background sync with new-article notifications, per-feed mute
 - TalkBack: labelled controls, merged article rows with custom actions, headings, live-region sync announcements

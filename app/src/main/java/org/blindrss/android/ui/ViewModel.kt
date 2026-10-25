@@ -34,8 +34,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun syncNow() { viewModelScope.launch { announce("Syncing"); announce(try { repo.syncProvider() } catch (e: Exception) { "Sync failed: ${e.message}" }) } }
     // Provider feeds come only through the provider; fetching them directly would duplicate articles.
     fun refreshFeed(f: FeedEntity) { if (f.remoteId != null) return syncNow(); viewModelScope.launch { try { val n = repo.refreshFeed(f); announce("Refreshed ${f.title}. $n new articles.") } catch (e: Exception) { announce("Error refreshing ${f.title}: ${e.message}") } } }
+    // onDone(null) when saved, else the reason, so the edit screen can stay open with the user's input.
+    fun updateFeed(f: FeedEntity, title: String, category: String, url: String, onDone: (String?) -> Unit) { viewModelScope.launch {
+        try { repo.updateFeed(f, title, category, url); announce("Saved ${title.trim()}"); onDone(null) }
+        catch (e: Exception) { onDone(e.message ?: e.javaClass.simpleName) } } }
     fun deleteFeed(f: FeedEntity) { viewModelScope.launch { try { repo.deleteFeed(f); announce("Deleted feed ${f.title}") } catch (e: Exception) { announce("Could not delete ${f.title}: ${e.message}") } } }
-    fun toggleMute(f: FeedEntity) { viewModelScope.launch { repo.feeds.update(f.copy(muted = !f.muted)); announce(if (f.muted) "Notifications on for ${f.title}" else "Notifications muted for ${f.title}") } }
+    fun toggleMute(f: FeedEntity) { viewModelScope.launch { repo.feeds.setMuted(f.id, !f.muted); announce(if (f.muted) "Notifications on for ${f.title}" else "Notifications muted for ${f.title}") } }
     fun setRead(a: ArticleEntity, read: Boolean) { viewModelScope.launch { repo.articles.setRead(a.id, read); repo.pushRead(a, read); announce(if (read) "Marked read: ${a.title}" else "Marked unread: ${a.title}") } }
     fun toggleFavorite(a: ArticleEntity) { viewModelScope.launch { repo.articles.setFavorite(a.id, !a.isFavorite); repo.pushFavorite(a, !a.isFavorite); announce(if (!a.isFavorite) "Favorited: ${a.title}" else "Removed favorite: ${a.title}") } }
     fun deleteArticle(a: ArticleEntity) { viewModelScope.launch { repo.deleteArticle(a); announce("Deleted: ${a.title}. Available in Deleted Articles.") } }
@@ -158,7 +162,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         discoverResults.value = org.blindrss.android.discovery.DiscoveryAggregator.markSubscribed(discoverResults.value, subs)
         announce("Subscribed to $ok sources." + if (failed > 0) " $failed failed." else "") } }
     fun toggleSubscribeDiscover(s: org.blindrss.android.discovery.DiscoveredSource) { viewModelScope.launch {
-        if (s.subscribed) { repo.feeds.all().firstOrNull { org.blindrss.android.discovery.UrlSafety.canonicalFeedUrl(it.url) == org.blindrss.android.discovery.UrlSafety.canonicalFeedUrl(s.feedUrl ?: "") }?.let { repo.feeds.delete(it) }
+        // Same path as Delete feed: unsubscribes on the server and removes the articles, so nothing comes back on sync.
+        if (s.subscribed) { val f = repo.feeds.all().firstOrNull { org.blindrss.android.discovery.UrlSafety.canonicalFeedUrl(it.url) == org.blindrss.android.discovery.UrlSafety.canonicalFeedUrl(s.feedUrl ?: "") }
+            try { f?.let { repo.deleteFeed(it) } } catch (e: Exception) { return@launch announce("Could not unsubscribe from ${s.name}: ${e.message}") }
             discoverResults.value = discoverResults.value.map { if (it.feedUrl == s.feedUrl) it.copy(subscribed = false) else it }; announce("Unsubscribed from ${s.name}") }
         else subscribeDiscover(listOf(s)) } }
     fun exchangeOAuth(code: String) { viewModelScope.launch { try { announce(repo.exchangeInoreaderCode(code)); val s = repo.syncProvider(); announce(s) } catch (e: Exception) { announce("Inoreader connect failed: ${e.message}") } } }

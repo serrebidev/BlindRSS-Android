@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
                         composable("articles/{mode}", listOf(navArgument("mode") { type = NavType.StringType })) { ArticlesScreen(nav, vm, it.arguments?.getString("mode") ?: "all") }
                         composable("articles/feed/{id}", listOf(navArgument("id") { type = NavType.LongType })) { FeedArticlesScreen(nav, vm, it.arguments?.getLong("id") ?: 0) }
                         composable("reader/{id}", listOf(navArgument("id") { type = NavType.StringType })) { ReaderScreen(nav, vm, it.arguments?.getString("id") ?: "") }
+                        composable("feed/edit/{id}", listOf(navArgument("id") { type = NavType.LongType })) { EditFeedScreen(nav, vm, it.arguments?.getLong("id") ?: 0) }
                         composable("search") { SearchScreen(nav, vm) }
                         composable("deleted") { DeletedScreen(nav, vm) }
                         composable("errors") { ErrorsScreen(nav, vm) }

@@ -123,6 +123,7 @@ fun FeedRow(f: FeedEntity, cat: String, nav: NavController, vm: AppViewModel) {
                     role = Role.Button
                     customActions = listOf(
                         CustomAccessibilityAction("Refresh feed") { vm.refreshFeed(f); true },
+                        CustomAccessibilityAction("Edit feed") { nav.navigate("feed/edit/${f.id}"); true },
                         CustomAccessibilityAction(if (f.muted) "Unmute notifications" else "Mute notifications") { vm.toggleMute(f); true },
                         CustomAccessibilityAction("Mark feed read") { vm.markFeedRead(f); true },
                         CustomAccessibilityAction("Delete feed") { vm.deleteFeed(f); true }
@@ -130,6 +131,7 @@ fun FeedRow(f: FeedEntity, cat: String, nav: NavController, vm: AppViewModel) {
                 })
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem({ Text("Refresh feed") }, { menu = false; vm.refreshFeed(f) })
+            DropdownMenuItem({ Text("Edit feed") }, { menu = false; nav.navigate("feed/edit/${f.id}") })
             DropdownMenuItem({ Text(if (f.muted) "Unmute notifications" else "Mute notifications") }, { menu = false; vm.toggleMute(f) })
             DropdownMenuItem({ Text("Mark feed read") }, { menu = false; vm.markFeedRead(f) })
             DropdownMenuItem({ Text("Delete feed") }, { menu = false; vm.deleteFeed(f) })
@@ -323,7 +325,7 @@ fun ErrorsScreen(nav: NavController, vm: AppViewModel) {
             if (errs.isEmpty()) Text("No feeds with errors.", Modifier.padding(16.dp))
             LazyColumn { items(errs, key = { it.id }) { f ->
                 ActionListItem(f.title, "${f.lastError}\n${f.url}\nFailures: ${f.consecutiveFailures}", "Feed ${f.title} error ${f.lastError}. Double tap to retry.", onOpen = { vm.refreshFeed(f) },
-                    actions = listOf("Retry feed" to { vm.refreshFeed(f) }, "Open feed" to { nav.navigate("articles/feed/${f.id}") }, "Delete feed" to { vm.deleteFeed(f) }))
+                    actions = listOf("Retry feed" to { vm.refreshFeed(f) }, "Open feed" to { nav.navigate("articles/feed/${f.id}") }, "Edit feed" to { nav.navigate("feed/edit/${f.id}") }, "Delete feed" to { vm.deleteFeed(f) }))
                 HorizontalDivider() } }
         }
     }
@@ -444,7 +446,7 @@ fun DiscoverRow(s: org.blindrss.android.discovery.DiscoveredSource, selected: Bo
             supportingContent = { Text(buildString { append(s.provider); if (s.category.isNotBlank()) append(" · ").append(s.category); append(if (s.subscribed) " · Already subscribed" else " · Not subscribed"); if (selected) append(" · Selected"); if (s.isGoogleNews) append(" · Search feed, not a single publisher"); if (s.feedUrl != null && !s.verified) append(" · Feed not yet verified") }) },
             modifier = Modifier.combinedClickable(onClick = { vm.previewDiscover(s) }, onLongClick = { menu = true })
                 .semantics(mergeDescendants = true) {
-                    contentDescription = s.describe() + if (selected) " Selected." else "" + " Double tap to preview. Double tap and hold for actions."
+                    contentDescription = s.describe() + (if (selected) " Selected." else "") + " Double tap to preview. Double tap and hold for actions."
                     role = Role.Button
                     stateDescription = when { s.subscribed -> "Subscribed"; selected -> "Selected"; else -> "Not subscribed" }
                     customActions = listOf(

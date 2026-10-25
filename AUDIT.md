@@ -14,7 +14,8 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Categories/folders | Done | Category string on feed; Home shows one collapsed row per category (actions: Expand, Play category, Download category when enabled in Settings > Playback) |
 | Smart Folders / saved searches | Done | `smart_folders` table, title/content/author contains, live results |
 | Deleted articles restore/purge | Done | `deleted_articles` tombstone, Restore + DeleteForever + purge all |
-| Feeds-with-errors view | Done | `feeds.lastError`, `observeErrors()`, retry action |
+| Feeds-with-errors view | Done | `feeds.lastError`, `observeErrors()`, retry and Edit feed actions |
+| Feed Properties (edit feed) | Done | Edit feed action on feed rows and in Feeds with Errors: title, category (type one or pick an existing one), and address for local feeds. Provider feeds are renamed and moved on the server first (Miniflux `PUT /v1/feeds/{id}`, Google Reader `subscription/edit` t/a/r, Feedbin subscription update + taggings, NewsBlur rename_feed + add_folder + move_feed_to_folder); Fever has no API for it and says so. A new local address must return a feed before saving; articles it still lists keep read, favorite, download, resume and chapter state (ids re-keyed by enclosure, then unique link). Refresh writes only status columns, so it cannot undo an edit or mute made meanwhile |
 | Filter rules | Done | Arrival pipeline in `Repository.saveArticles`: mark_read, mark_favorite, delete, move (folder override), label (extra category membership), skip_notification; browse via Categories and Labels |
 | Full-text extraction | Done | `FullText.extract` Readability-style scored extraction (jsoup, link-density penalty, tightest-container pick, boilerplate drop); browser user-agent; Miniflux server fetch-content preferred when available; verified on mapleridgenews.com (WordPress, no <article> tag) |
 | Search | Done | Room LIKE over title/content/description |

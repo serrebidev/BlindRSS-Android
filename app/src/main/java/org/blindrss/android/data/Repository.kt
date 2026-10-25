@@ -1,6 +1,7 @@
 package org.blindrss.android.data
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -36,9 +37,7 @@ class Repository(val ctx: Context) {
     suspend fun resolveFeedUrl(input: String): String {
         val normalized = FeedDiscovery.normalizeInput(input)
         val body = try { fetchText(normalized) } catch (_: Exception) { return normalized }
-        val trimmed = body.trimStart()
-        if (trimmed.startsWith("<") && (trimmed.contains("<rss") || trimmed.contains("<feed") || trimmed.contains("<RDF") || trimmed.contains("\"version\""))) return normalized
-        if (trimmed.startsWith("{")) return normalized
+        if (looksLikeFeed(body)) return normalized
         val links = FeedDiscovery.findFeedLinks(body, normalized)
         return links.firstOrNull() ?: normalized
     }
@@ -55,12 +54,40 @@ class Repository(val ctx: Context) {
         saveArticles(feed, parsed.articles); feed
     }
     suspend fun refreshFeed(feed: FeedEntity): Int = withContext(Dispatchers.IO) {
-        try { val xml = fetchFeed(feed.url) ?: run { feeds.update(feed.copy(lastError = null, lastSuccessAt = System.currentTimeMillis(), consecutiveFailures = 0)); return@withContext 0 }
+        try { val xml = fetchFeed(feed.url) ?: run { feeds.markSuccess(feed.id, System.currentTimeMillis(), ""); return@withContext 0 }
             val parsed = FeedParser.parse(xml, feed.url)
-            val named = if (feed.title.isBlank()) feed.copy(title = parsed.title) else feed
             val n = saveArticles(feed, parsed.articles)
-            feeds.update(named.copy(lastError = null, lastSuccessAt = System.currentTimeMillis(), consecutiveFailures = 0)); n
-        } catch (e: Exception) { feeds.update(feed.copy(lastError = e.message, lastErrorAt = System.currentTimeMillis(), consecutiveFailures = feed.consecutiveFailures + 1)); throw e }
+            feeds.markSuccess(feed.id, System.currentTimeMillis(), parsed.title); n
+        } catch (e: Exception) { feeds.markFailure(feed.id, e.message, System.currentTimeMillis()); throw e }
+    }
+    // Feed properties. Provider feeds are renamed and moved on the server first, so the next sync keeps the change;
+    // their address belongs to the server. A local feed's new address must answer with a feed before anything is saved.
+    suspend fun updateFeed(f: FeedEntity, titleInput: String, categoryInput: String, urlInput: String) = withContext(Dispatchers.IO) {
+        val title = titleInput.trim(); val category = categoryInput.trim().ifEmpty { "Uncategorized" }
+        if (title.isEmpty()) throw java.io.IOException("Title is required")
+        val cur = feeds.byId(f.id) ?: throw java.io.IOException("This feed no longer exists")
+        cur.remoteId?.let { remote ->
+            if (title != cur.title || category != cur.category) (buildProvider() ?: throw java.io.IOException("No provider signed in")).updateFeed(remote, cur.title, title, cur.category, category)
+            feeds.update(cur.copy(title = title, category = category)); return@withContext
+        }
+        val typed = urlInput.trim(); if (typed.isEmpty()) throw java.io.IOException("Feed address is required")
+        if (typed == cur.url) { feeds.update(cur.copy(title = title, category = category)); return@withContext }
+        val url = resolveFeedUrl(typed)
+        feeds.byUrl(url)?.takeIf { it.id != cur.id }?.let { throw java.io.IOException("Already subscribed at that address: ${it.title}") }
+        val body = fetchText(url); if (!looksLikeFeed(body)) throw java.io.IOException("No feed found at $url")
+        val parsed = FeedParser.parse(body, url)
+        db.withTransaction { adoptArticles(cur.id, url, parsed.articles)
+            feeds.update(cur.copy(url = url, title = title, category = category, lastError = null, lastSuccessAt = System.currentTimeMillis(), consecutiveFailures = 0)) }
+        saveArticles(feeds.byId(cur.id)!!, parsed.articles)
+    }
+    // Article ids hash the feed address, so a moved feed would come back as all new. Articles (and deleted ones) that
+    // the new address still lists keep their read, favorite, download, resume and chapter state under the new ids.
+    // ponytail: the saved Up next queue keeps old ids; a moved episode drops out of it at the next launch.
+    private suspend fun adoptArticles(feedId: Long, newUrl: String, parsed: List<ParsedArticle>) {
+        val incoming = parsed.map { Keyed(FeedParser.stableId(newUrl, it.guid), it.url, it.mediaUrl) }
+        for ((from, to) in rekeyPlan(articles.byFeed(feedId).map { Keyed(it.id, it.url, it.mediaUrl) }, incoming)) {
+            articles.rekey(from, to); misc.rekeyDownload(from, to); misc.rekeyPlayback(from, to); misc.rekeyChapters(from, to) }
+        for ((from, to) in rekeyPlan(misc.deletedByFeed(feedId).map { Keyed(it.id, it.url, it.mediaUrl) }, incoming)) misc.rekeyDeleted(from, to)
     }
     data class RefreshResult(val newArticles: Int, val toNotify: Int, val failedFeeds: Int, val localFeeds: Int, val providerError: String?, val nothingWorked: Boolean)
     // One refresh for the Refresh button and the background worker: local feeds 8 at a time, then the provider.
@@ -265,6 +292,21 @@ class Repository(val ctx: Context) {
         } } }.awaitAll() }
     }
     companion object { const val OFFLINE = "__fulltext"; const val OFFLINE_FAILED = "__fulltext_none"
+        fun looksLikeFeed(body: String): Boolean { val t = body.trimStart()
+            return t.startsWith("{") || (t.startsWith("<") && (t.contains("<rss") || t.contains("<feed") || t.contains("<RDF") || t.contains("\"version\""))) }
+        data class Keyed(val id: String, val link: String, val media: String?)
+        // Old id to new id. An item matches by its enclosure, else its link, and only when exactly one existing article
+        // has that value (podcast feeds often give every episode the show's home page as link).
+        fun rekeyPlan(have: List<Keyed>, incoming: List<Keyed>): Map<String, String> {
+            fun unique(key: (Keyed) -> String?) = have.groupBy(key).filter { (k, v) -> !k.isNullOrEmpty() && v.size == 1 }.mapValues { it.value[0].id }
+            val byMedia = unique { it.media }; val byLink = unique { it.link }; val haveIds = have.map { it.id }.toHashSet()
+            val out = mutableMapOf<String, String>(); val taken = mutableSetOf<String>()
+            for (n in incoming) { if (n.id in haveIds || n.id in taken) continue
+                val from = n.media?.let { byMedia[it] } ?: byLink[n.link] ?: continue
+                if (from in out) continue
+                out[from] = n.id; taken += n.id }
+            return out
+        }
         // HTTP charset first, then the XML declaration (<?xml encoding="ISO-8859-1"?>), then UTF-8.
         fun decode(bytes: ByteArray, header: java.nio.charset.Charset?): String {
             val declared = Regex("""^\s*<\?xml[^>]*encoding\s*=\s*["']([\w.:-]+)["']""").find(String(bytes, 0, minOf(bytes.size, 200), Charsets.ISO_8859_1))?.groupValues?.get(1)

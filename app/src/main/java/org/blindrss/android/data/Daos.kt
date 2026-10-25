@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM feeds WHERE id = :id") suspend fun byId(id: Long): FeedEntity?
     @Query("SELECT * FROM feeds WHERE remoteId = :remoteId LIMIT 1") suspend fun byRemoteId(remoteId: String): FeedEntity?
     @Query("UPDATE feeds SET remoteId = NULL") suspend fun clearRemoteIds()
+    // Refresh results touch only status columns, so an edit or mute made while a refresh runs is not overwritten.
+    @Query("UPDATE feeds SET lastError = NULL, lastSuccessAt = :at, consecutiveFailures = 0, title = CASE WHEN title = '' THEN :title ELSE title END WHERE id = :id") suspend fun markSuccess(id: Long, at: Long, title: String)
+    @Query("UPDATE feeds SET muted = :muted WHERE id = :id") suspend fun setMuted(id: Long, muted: Boolean)
+    @Query("UPDATE feeds SET lastError = :error, lastErrorAt = :at, consecutiveFailures = consecutiveFailures + 1 WHERE id = :id") suspend fun markFailure(id: Long, error: String?, at: Long)
 }
 @Dao interface ArticleDao {
     @Query("SELECT * FROM articles ORDER BY date DESC") fun observeAll(): Flow<List<ArticleEntity>>
@@ -44,6 +48,8 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM articles WHERE isRead = 0 AND url != '' AND mediaUrl IS NULL AND date > :since AND instr(labels, '__fulltext') = 0 ORDER BY date DESC LIMIT :n") suspend fun offlineCandidates(n: Int, since: Long): List<ArticleEntity>
     @Query("UPDATE articles SET content = :content, labels = :labels WHERE id = :id") suspend fun setContent(id: String, content: String, labels: String)
     @Query("SELECT COUNT(*) FROM articles WHERE isRead = 0") fun unreadCount(): Flow<Int>
+    @Query("SELECT * FROM articles WHERE feedId = :feedId") suspend fun byFeed(feedId: Long): List<ArticleEntity>
+    @Query("UPDATE articles SET id = :to WHERE id = :from") suspend fun rekey(from: String, to: String)
 }
 @Dao interface MiscDao {
     @Query("SELECT * FROM deleted_articles ORDER BY deletedAt DESC") fun observeDeleted(): Flow<List<DeletedArticleEntity>>
@@ -52,6 +58,11 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM deleted_articles WHERE id = :id") suspend fun deletedById(id: String): DeletedArticleEntity?
     @Query("DELETE FROM deleted_articles") suspend fun purgeAllDeleted()
     @Query("SELECT id FROM deleted_articles") suspend fun deletedIds(): List<String>
+    @Query("SELECT * FROM deleted_articles WHERE feedId = :feedId") suspend fun deletedByFeed(feedId: Long): List<DeletedArticleEntity>
+    @Query("UPDATE deleted_articles SET id = :to WHERE id = :from") suspend fun rekeyDeleted(from: String, to: String)
+    @Query("UPDATE downloads SET articleId = :to WHERE articleId = :from") suspend fun rekeyDownload(from: String, to: String)
+    @Query("UPDATE playback_state SET articleId = :to WHERE articleId = :from") suspend fun rekeyPlayback(from: String, to: String)
+    @Query("UPDATE chapters SET articleId = :to WHERE articleId = :from") suspend fun rekeyChapters(from: String, to: String)
     @Query("SELECT * FROM smart_folders ORDER BY name") fun observeSmart(): Flow<List<SmartFolderEntity>>
     @Insert suspend fun insertSmart(s: SmartFolderEntity)
     @Delete suspend fun deleteSmart(s: SmartFolderEntity)

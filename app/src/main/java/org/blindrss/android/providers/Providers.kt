@@ -20,6 +20,8 @@ interface SyncProvider {
     // Returns null when the service cannot subscribe (the app then keeps the feed local).
     suspend fun addFeed(url: String, category: String): RemoteFeed?
     suspend fun removeFeed(remoteId: String, category: String)
+    // Rename and move a subscription on the server. Only changed values are sent.
+    suspend fun updateFeed(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String) { throw IOException("$typeName cannot rename or move feeds. Change them on your server.") }
     suspend fun markFeedRead(remoteId: String)
     suspend fun markAllRead()
     // Every unread item id on the server, when the API lists them cheaply. Local copies missing from it are marked read.
@@ -90,11 +92,23 @@ open class GReaderProvider(val base: String, private val user: String, private v
         return fetchFeeds().let { all -> all.firstOrNull { it.remoteId == "feed/$url" } ?: all.firstOrNull { it.url == url } }
     }
     override suspend fun removeFeed(remoteId: String, category: String) { req("$base/subscription/edit", authHeader(), "POST", form = mapOf("s" to remoteId, "ac" to "unsubscribe", "T" to editTok(), "output" to "json")) }
+    override suspend fun updateFeed(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String) {
+        req("$base/subscription/edit", authHeader(), "POST", form = editForm(remoteId, oldTitle, title, oldCategory, category) + mapOf("T" to editTok(), "output" to "json"))
+    }
     override suspend fun markFeedRead(remoteId: String) { req("$base/mark-all-as-read", authHeader(), "POST", form = mapOf("s" to remoteId, "T" to editTok(), "output" to "json")) }
     override suspend fun markAllRead() = markFeedRead("user/-/state/com.google/reading-list")
     companion object {
         // Users paste the FreshRSS API root (…/api/greader.php); the reader endpoints live under /reader/api/0.
         fun freshRssBase(url: String): String { val u = url.trim().trimEnd('/'); return if (u.endsWith("/reader/api/0")) u else "$u/reader/api/0" }
+        // subscription/edit: t renames; a/r add and remove folder labels. Uncategorized means no label.
+        fun editForm(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String): Map<String, String> = buildMap {
+            put("s", remoteId); put("ac", "edit")
+            if (title != oldTitle) put("t", title)
+            if (category != oldCategory) {
+                if (oldCategory != "Uncategorized") put("r", "user/-/label/$oldCategory")
+                if (category != "Uncategorized") put("a", "user/-/label/$category")
+            }
+        }
         fun parseSubscriptions(raw: String): List<RemoteFeed> {
             val arr = JSONObject(raw).optJSONArray("subscriptions") ?: JSONArray()
             return (0 until arr.length()).map { val o = arr.getJSONObject(it)
@@ -150,6 +164,7 @@ class InoreaderProvider(private var accessToken: String, private val appId: Stri
     override suspend fun setFavorite(remoteId: String, fav: Boolean) = authed { super.setFavorite(remoteId, fav) }
     override suspend fun addFeed(url: String, category: String): RemoteFeed? = authed { super.addFeed(url, category) }
     override suspend fun removeFeed(remoteId: String, category: String) = authed { super.removeFeed(remoteId, category) }
+    override suspend fun updateFeed(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String) = authed { super.updateFeed(remoteId, oldTitle, title, oldCategory, category) }
     override suspend fun markFeedRead(remoteId: String) = authed { super.markFeedRead(remoteId) }
     override suspend fun markAllRead() = authed { super.markAllRead() }
 }
@@ -211,14 +226,21 @@ class MinifluxProvider(private val server: String, private val apiKey: String, p
     override suspend fun setFavorite(remoteId: String, fav: Boolean) {
         if (JSONObject(req("$root/v1/entries/$remoteId", auth())).optBoolean("starred") != fav) req("$root/v1/entries/$remoteId/bookmark", auth(), "PUT")
     }
+    // Existing category with that title (Miniflux treats titles case-insensitively), else a new one.
+    private fun categoryId(title: String): Long {
+        val cats = JSONArray(req("$root/v1/categories", auth()))
+        for (i in 0 until cats.length()) cats.getJSONObject(i).let { if (it.optString("title").equals(title, ignoreCase = true)) return it.getLong("id") }
+        return JSONObject(jsonPost("$root/v1/categories", auth(), JSONObject().put("title", title).toString())).getLong("id")
+    }
     override suspend fun addFeed(url: String, category: String): RemoteFeed? {
-        val cats = JSONArray(req("$root/v1/categories", auth())); var catId: Long? = null
-        for (i in 0 until cats.length()) if (cats.getJSONObject(i).optString("title") == category) catId = cats.getJSONObject(i).getLong("id")
-        if (catId == null) { val c = JSONObject(jsonPost("$root/v1/categories", auth(), JSONObject().put("title", category).toString())); catId = c.getLong("id") }
-        val r = JSONObject(jsonPost("$root/v1/feeds", auth(), JSONObject().put("feed_url", url).put("category_id", catId).toString()))
+        val r = JSONObject(jsonPost("$root/v1/feeds", auth(), JSONObject().put("feed_url", url).put("category_id", categoryId(category)).toString()))
         return RemoteFeed(r.getLong("feed_id").toString(), url, url, category)
     }
     override suspend fun removeFeed(remoteId: String, category: String) { req("$root/v1/feeds/$remoteId", auth(), "DELETE") }
+    override suspend fun updateFeed(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String) {
+        val body = JSONObject(); if (title != oldTitle) body.put("title", title); if (category != oldCategory) body.put("category_id", categoryId(category))
+        if (body.length() > 0) req("$root/v1/feeds/$remoteId", auth(), "PUT", body.toString().toRequestBody("application/json".toMediaType()))
+    }
     override suspend fun markFeedRead(remoteId: String) { req("$root/v1/feeds/$remoteId/mark-all-as-read", auth(), "PUT") }
     override suspend fun markAllRead() { val me = JSONObject(req("$root/v1/me", auth())); req("$root/v1/users/${me.getLong("id")}/mark-all-as-read", auth(), "PUT") }
     suspend fun fetchFullContent(remoteId: String): String { val j = JSONObject(req("$root/v1/entries/$remoteId/fetch-content", auth())); return j.optString("content") }
@@ -307,10 +329,18 @@ class FeedbinProvider(private val user: String, private val pass: String) : Base
         if (category.isNotBlank() && category != "Uncategorized") json("POST", "/taggings.json", JSONObject().put("feed_id", fid).put("name", category))
         return RemoteFeed(fid.toString(), o.str("title"), o.str("feed_url").ifEmpty { url }, category)
     }
+    private fun subscriptionId(feedId: String): Long? { val subs = JSONArray(req("$root/subscriptions.json", auth()))
+        return (0 until subs.length()).map { subs.getJSONObject(it) }.firstOrNull { it.optLong("feed_id").toString() == feedId }?.getLong("id") }
     override suspend fun removeFeed(remoteId: String, category: String) {
-        val subs = JSONArray(req("$root/subscriptions.json", auth()))
-        val sub = (0 until subs.length()).map { subs.getJSONObject(it) }.firstOrNull { it.optLong("feed_id").toString() == remoteId } ?: return
-        req("$root/subscriptions/${sub.getLong("id")}.json", auth(), "DELETE")
+        req("$root/subscriptions/${subscriptionId(remoteId) ?: return}.json", auth(), "DELETE")
+    }
+    // Title lives on the subscription; the folder is a tagging, so moving swaps the old tag for the new one.
+    override suspend fun updateFeed(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String) {
+        if (title != oldTitle) json("POST", "/subscriptions/${subscriptionId(remoteId) ?: throw IOException("Feedbin subscription not found")}/update.json", JSONObject().put("title", title))
+        if (category == oldCategory) return
+        val tags = JSONArray(req("$root/taggings.json", auth()))
+        for (i in 0 until tags.length()) tags.getJSONObject(i).takeIf { it.optLong("feed_id").toString() == remoteId && it.str("name") == oldCategory }?.let { req("$root/taggings/${it.getLong("id")}.json", auth(), "DELETE") }
+        if (category != "Uncategorized") json("POST", "/taggings.json", JSONObject().put("feed_id", remoteId.toLong()).put("name", category))
     }
     override suspend fun markFeedRead(remoteId: String) {
         val unread = ids("/unread_entries.json").toSet(); val inFeed = mutableListOf<Long>()
@@ -359,6 +389,16 @@ class NewsBlurProvider(private val cookieOrToken: String) : BaseHttp(), SyncProv
         return RemoteFeed(f.optLong("id").toString(), f.optString("feed_title"), f.optString("feed_address", url), category)
     }
     override suspend fun removeFeed(remoteId: String, category: String) { postForm("/reader/delete_feed", mapOf("feed_id" to remoteId, "in_folder" to if (category == "Uncategorized") "" else category)) }
+    // NewsBlur answers HTTP 200 with code -1 on failure. Moving into a folder that does not exist drops the feed
+    // from every folder, so the folder is created first (add_folder ignores names that already exist).
+    override suspend fun updateFeed(remoteId: String, oldTitle: String, title: String, oldCategory: String, category: String) {
+        fun folder(c: String) = if (c == "Uncategorized") "" else c
+        fun check(raw: String) { val j = JSONObject(raw); if (j.optInt("code", 1) < 0) throw IOException(j.optString("message").ifEmpty { "NewsBlur refused the change" }) }
+        if (title != oldTitle) check(postForm("/reader/rename_feed", mapOf("feed_id" to remoteId, "feed_title" to title)))
+        if (category == oldCategory) return
+        if (folder(category).isNotEmpty()) check(postForm("/reader/add_folder", mapOf("folder" to folder(category), "parent_folder" to "")))
+        check(postForm("/reader/move_feed_to_folder", mapOf("feed_id" to remoteId, "in_folder" to folder(oldCategory), "to_folder" to folder(category))))
+    }
     override suspend fun markFeedRead(remoteId: String) { postForm("/reader/mark_feed_as_read", mapOf("feed_id" to remoteId)) }
     override suspend fun markAllRead() { postForm("/reader/mark_all_as_read", mapOf("days" to "0")) }
     companion object {
