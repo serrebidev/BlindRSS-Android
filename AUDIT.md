@@ -63,6 +63,21 @@ One TalkBack focus stop per row: rows have no buttons of their own. Article, fee
 
 Home > Discover News Sources: search by publisher name, topic, or website URL; browse by category (General, World, Canada, Local, Politics, Business, Technology, Science, Health, Entertainment, Sports, Gaming); filter by country and language; manual city/region for local news (no GPS). Providers: Feedly public feed search (keyless, verified live; disables gracefully on failure), Plenary awesome-rss-feeds OPML catalogue (disk-cached 7 days, built-in Canadian starter set, tolerant OPML parsing for malformed files), hardened website autodiscovery (link tags + common paths, only parse-verified feeds shown, private/loopback destinations blocked, size and timeout caps), Google News RSS (headlines/topic/search per country+language, labelled as search feeds), Apple Podcasts + gPodder (Add Feed), and optional NewsAPI.org / The News API (Settings keys, encrypted; publishers only appear after website autodiscovery verifies a feed). Results are deduplicated by canonical feed URL, show subscription status, support preview (recent headlines), subscribe/unsubscribe, and batch subscribe. Desktop BlindRSS gained the same catalogue, localized Google News, and optional News API sources in its existing Feed Search dialog.
 
+## v0.10.0 parity pass (against desktop v2.5.1)
+
+| Desktop feature | Android status | Notes |
+|---|---|---|
+| YouTube articles: description, transcript, chapters inline | Done | `feed/YoutubeText.kt` + `Ytdl.infoJsonBlocking` (-J --write-comments); reader Fetch full text / full-text open mode / read aloud. Top comments included, best effort |
+| Reddit / Lemmy discussions as whole threads | Done | `feed/ForumText.kt`: Reddit public .json, Lemmy v3 API (feed must be served by the same instance). Groups.io / Google Groups need account sessions: not ported |
+| Subscribe shortcuts (Mastodon, Bluesky, PieFed, GitHub, YouTube playlists) | Done | `FeedDiscovery.normalizeInput` URL transforms |
+| Feed search: Feedsearch, Mastodon, Bluesky, PieFed | Done | `DiscoverySearch` keyless public APIs, added to Apple/gPodder. SoundCloud/Mixcloud feed search and yt-dlp "listing feeds" stay desktop-only (scraped enumeration, no stable API) |
+| Bot protection: configurable browser identity + clearance cookies | Done (subset) | Settings > Sync and notifications > Fetching: user-agent presets + a pasted Cookie header (Keystore-encrypted), applied to feed/article fetches. Desktop imports cookies from a desktop browser, which has no Android equivalent |
+| Offline user guide | Done | Home menu > User guide and Settings > About; Android guide bundled as an asset, one TalkBack stop per block |
+| Refresh complete sound (Miniflux chime, v2.4.5/v2.4.6) | Done | Short notification sound after manual refreshes; toggle in Sync settings |
+| Video Search (yt-dlp site media search) | Not ported | A separate media-browsing surface; playback of found pages already works via article actions |
+| 15-language UI translations | Not ported | UI strings are hardcoded in Compose; needs a full string-extraction project |
+| Reading position on status bar (v2.4.0) | Desktop-only UI | Android reader is a block list with TalkBack position; no status bar analogue |
+
 ## Known gaps
 
 Chromecast/AirPlay casting not implemented (DLNA/UPnP covers local-network casting without Play Services); podcast archive and YouTube-account providers still desktop-only (need yt-dlp/OAuth scraping); Feedly/NewsBlur directory search not included (Apple/gPodder only); live server logins were not re-tested after this pass.

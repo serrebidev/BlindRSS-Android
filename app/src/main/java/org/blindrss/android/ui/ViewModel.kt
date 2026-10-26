@@ -23,14 +23,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val unreadCount: StateFlow<Int> = repo.articles.unreadCount().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun addFeed(url: String, category: String = "Uncategorized") { viewModelScope.launch { try { val f = repo.addFeed(url, category); announce("Subscribed to ${f.title}") } catch (e: Exception) { announce("Error adding feed: ${e.message}") } } }
-    fun refreshAll() { viewModelScope.launch { announce("Refreshing"); val r = repo.refreshAll(manual = true)
+    // chime: the desktop app sounds a chime when a refresh the user started
+    // completes; automatic refreshes (launch, background) stay silent.
+    fun refreshAll(chime: Boolean = true) { viewModelScope.launch { announce("Refreshing"); val r = repo.refreshAll(manual = true)
         announce(buildString { append("Refresh complete. ${r.newArticles} new articles.")
-            if (r.failedFeeds > 0) append(" ${r.failedFeeds} feeds with errors."); r.providerError?.let { append(" Sync failed: $it") } }) } }
+            if (r.failedFeeds > 0) append(" ${r.failedFeeds} feeds with errors."); r.providerError?.let { append(" Sync failed: $it") } })
+        if (chime && repo.settings.refreshChime.first()) org.blindrss.android.playback.Chime.play(getApplication()) } }
     // Background sync is scheduled on every launch so it runs without a manual refresh first.
     // Miniflux sends saved articles to the read-later services set up on the server (Instapaper, Pocket, Wallabag...).
     val canSaveToIntegrations: StateFlow<Boolean> = repo.settings.provider.map { it == ProviderType.MINIFLUX }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     fun saveToIntegrations(a: ArticleEntity) { viewModelScope.launch { announce(try { repo.saveToIntegrations(a); "Saved: ${a.title}" } catch (e: Exception) { "Save failed: ${e.message}" }) } }
-    fun refreshOnLaunch() { viewModelScope.launch { SyncWorker.schedule(getApplication()); if (repo.settings.refreshOnStart.first()) refreshAll() } }
+    fun refreshOnLaunch() { viewModelScope.launch { SyncWorker.schedule(getApplication()); if (repo.settings.refreshOnStart.first()) refreshAll(chime = false) } }
     fun syncNow() { viewModelScope.launch { announce("Syncing"); announce(try { repo.syncProvider() } catch (e: Exception) { "Sync failed: ${e.message}" }) } }
     // Provider feeds come only through the provider; fetching them directly would duplicate articles.
     fun refreshFeed(f: FeedEntity) { if (f.remoteId != null) return syncNow(); viewModelScope.launch { try { val n = repo.refreshFeed(f); announce("Refreshed ${f.title}. $n new articles.") } catch (e: Exception) { announce("Error refreshing ${f.title}: ${e.message}") } } }

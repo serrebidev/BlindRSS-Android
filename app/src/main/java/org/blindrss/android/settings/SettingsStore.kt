@@ -105,6 +105,12 @@ class SettingsStore(private val ctx: Context) {
             readFlags = p[booleanPreferencesKey("list_read_flags")] ?: true,
             statusPosition = p[stringPreferencesKey("list_status_position")] ?: "END") }
     suspend fun setListPrefs(prefs: org.blindrss.android.ui.ListReadingPrefs) { ctx.ds.edit { it[booleanPreferencesKey("list_read_source")] = prefs.readSource; it[booleanPreferencesKey("list_read_author")] = prefs.readAuthor; it[booleanPreferencesKey("list_read_date")] = prefs.readDate; it[booleanPreferencesKey("list_read_text")] = prefs.readText; it[stringPreferencesKey("list_text_amount")] = prefs.textAmount; it[booleanPreferencesKey("list_read_flags")] = prefs.readFlags; it[stringPreferencesKey("list_status_position")] = prefs.statusPosition } }
+    // Fetch identity for bot-protected feeds/pages (Settings > Sync and notifications > Fetching).
+    val feedUaPreset: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("feed_ua_preset")] ?: "BLINDRSS" }
+    suspend fun setFeedUaPreset(v: String) { ctx.ds.edit { it[stringPreferencesKey("feed_ua_preset")] = v } }
+    suspend fun siteCookies(): String { val v = ctx.ds.data.first()[stringPreferencesKey("site_cookies_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+    suspend fun setSiteCookies(raw: String) { val clean = FetchIdentity.sanitizeCookies(raw); ctx.ds.edit { it[stringPreferencesKey("site_cookies_enc")] = if (clean.isEmpty()) "" else encrypt(clean) } }
+    val refreshChime = flag("refresh_chime", true)
     val skipSilence: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("skip_silence")] ?: true }
     val sponsorBlock: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("sponsorblock")] ?: true }
     val eqEnabled: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("eq_enabled")] ?: false }

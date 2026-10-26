@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
                         composable("addfeed") { AddFeedScreen(nav, vm) }
                         composable("player") { PlayerScreen(nav, vm) }
                         composable("settings") { SettingsScreen(nav, vm) }
+                        composable("help") { HelpScreen(nav, vm) }
                         composable("settings/provider/{type}") { ProviderSetupScreen(nav, vm, org.blindrss.android.settings.ProviderType.valueOf(it.arguments?.getString("type") ?: "MINIFLUX")) }
                         composable("settings/{section}") { SettingsSectionScreen(nav, vm, it.arguments?.getString("section") ?: "") }
                         composable("categories") { CategoriesScreen(nav, vm) }

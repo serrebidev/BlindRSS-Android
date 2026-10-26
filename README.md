@@ -17,11 +17,15 @@ Debug APK: `app/build/outputs/apk/debug/app-debug.apk` (signed with debug key).
 
 ## Features
 
-- Local RSS/Atom/RDF/JSON-Feed, OPML import/export, URL feed discovery (incl. YouTube/Reddit/Lemmy shortcuts)
+- Local RSS/Atom/RDF/JSON-Feed, OPML import/export, URL feed discovery (YouTube channel/playlist, Reddit, Lemmy/PieFed, Mastodon, Bluesky and GitHub shortcuts)
 - Hosted sync: Miniflux, Inoreader, The Old Reader, BazQux, Feedbin, Google Reader/FreshRSS, Fever, NewsBlur
 - All/Unread/Read/Favorites, categories, Smart Folders, Deleted restore/purge, Feeds-with-errors, filter rules
 - Edit feed: rename, move to another category, change a local feed's address (synced to your provider)
 - Full-text extraction, search, podcast playback (speed, seek, chapters, sleep timer, offline downloads, resume)
+- YouTube videos read as articles (description, chapters, transcript, top comments); Reddit and Lemmy threads read whole
+- Directory search: Apple Podcasts, gPodder, Feedsearch, Mastodon, Bluesky, PieFed
+- Configurable browser identity and clearance cookies for bot-protected feeds; refresh complete sound
+- Offline user guide (Home menu and Settings > About)
 - Background sync with new-article notifications, per-feed mute
 - TalkBack: labelled controls, merged article rows with custom actions, headings, live-region sync announcements
 

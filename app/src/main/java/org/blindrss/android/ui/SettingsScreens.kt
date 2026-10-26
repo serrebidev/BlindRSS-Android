@@ -216,6 +216,9 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
             } }
         "sync" -> { val interval by s.syncInterval.collectAsState(60); val wifi by s.wifiOnly.collectAsState(false)
             val onStart by s.refreshOnStart.collectAsState(false); val notify by s.notifyNew.collectAsState(true); val keep by s.maxPerFeed.collectAsState(0)
+            val chime by s.refreshChime.collectAsState(true); val uaPreset by s.feedUaPreset.collectAsState("BLINDRSS")
+            var cookies by remember { mutableStateOf("") }; var cookiesLoaded by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { cookies = s.siteCookies(); cookiesLoaded = true }
             val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (!ok) status = "Notifications are blocked. Allow them in Android settings." }
             SettingsPage("Sync and notifications", nav, vm) {
                 item { Choices("Sync in background", listOf(0 to "Off", 15 to "Every 15 minutes", 30 to "Every 30 minutes", 60 to "Every hour", 240 to "Every 4 hours", 720 to "Every 12 hours"), interval) {
@@ -223,6 +226,13 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { Heading("Options") }
                 item { SwitchRow("Wi-Fi only", wifi) { scope.launch { s.setFlag("sync_wifi_only", it); SyncWorker.schedule(ctx) } } }
                 item { SwitchRow("Refresh when app opens", onStart) { scope.launch { s.setFlag("refresh_on_start", it) } } }
+                item { SwitchRow("Refresh complete sound", chime, "Plays a short sound when a refresh you started finishes.") { scope.launch { s.setFlag("refresh_chime", it) } } }
+                item { Choices("Browser identity for feeds", org.blindrss.android.settings.FetchIdentity.PRESETS, uaPreset) { scope.launch { s.setFeedUaPreset(it) } }
+                    Note("Some sites only serve feeds to a browser identity. Provider accounts are not affected.") }
+                item { Heading("Clearance cookies") }
+                item { Note("Paste a Cookie header from your browser for sites behind bot protection. It is stored encrypted and sent only with feed and article fetches.") }
+                item { SecretField("Site cookies", cookies) { cookies = it } }
+                item { WideButton("Save cookies", cookiesLoaded) { scope.launch { s.setSiteCookies(cookies); status = "Cookies saved" } } }
                 item { Choices("Keep per feed", listOf(0 to "All articles", 100 to "Newest 100", 250 to "Newest 250", 500 to "Newest 500", 1000 to "Newest 1000"), keep) { scope.launch { s.setMaxPerFeed(it) } }
                     Note("Older articles are deleted after each refresh. Favorites are kept.") }
                 item { Heading("Notifications") }
@@ -254,6 +264,7 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
             var newer by remember { mutableStateOf<String?>(null) }
             SettingsPage("About", nav, vm) {
                 item { ListItem(headlineContent = { Text("BlindRSS $version") }, supportingContent = { Text("Accessible RSS and podcast reader") }, modifier = Modifier.semantics(mergeDescendants = true) {}) }
+                item { WideButton("Open the user guide") { nav.navigate("help") } }
                 item { WideButton("Check for updates") { scope.launch { status = "Checking"; val latest = org.blindrss.android.feed.UpdateCheck.latestVersion()
                     newer = latest?.takeIf { it != version }
                     status = when { latest == null -> "Update check failed. Are you online?"; newer == null -> "Up to date."; else -> "Version $latest is available." } } } }

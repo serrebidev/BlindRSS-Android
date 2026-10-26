@@ -177,6 +177,7 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
                 DropdownMenuItem({ Text("Add feed") }, { menu = false; nav.navigate("addfeed") })
                 DropdownMenuItem({ Text("Search") }, { menu = false; nav.navigate("search") })
                 DropdownMenuItem({ Text("Mark all read") }, { menu = false; vm.markAllRead() })
+                DropdownMenuItem({ Text("User guide") }, { menu = false; nav.navigate("help") })
                 DropdownMenuItem({ Text("Settings") }, { menu = false; nav.navigate("settings") })
             } }
     }) }) { pad ->
@@ -383,7 +384,7 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
     var exportMsg by remember { mutableStateOf("") }
     Scaffold(topBar = { TopAppBar(title = { Text("Add Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { LiveAnnouncer(vm)
-            Text("Paste a feed URL, website URL, YouTube channel, Reddit community, or Lemmy community URL. Discovery finds the feed automatically.", style = MaterialTheme.typography.bodyMedium)
+            Text("Paste a feed URL, website URL, YouTube channel or playlist, Reddit community, Lemmy or PieFed community, Mastodon or Bluesky profile, or GitHub repository URL. Discovery finds the feed automatically.", style = MaterialTheme.typography.bodyMedium)
             OutlinedTextField(url, { url = it }, label = { Text("Feed or website URL") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Feed or website URL edit field" }, singleLine = true)
             OutlinedTextField(cat, { cat = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Category edit field" }, singleLine = true)
             Button(onClick = { vm.addFeed(url, cat); nav.popBackStack() }, Modifier.fillMaxWidth().semantics { contentDescription = "Subscribe to feed" }) { Text("Subscribe") }
@@ -395,7 +396,7 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
             HorizontalDivider()
             Text("Search podcast directories", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
             var dq by remember { mutableStateOf("") }; var hits by remember { mutableStateOf<List<org.blindrss.android.feed.SearchHit>>(emptyList()) }; var searching by remember { mutableStateOf(false) }
-            OutlinedTextField(dq, { dq = it }, label = { Text("Search Apple Podcasts and gPodder") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search podcast directories" }, singleLine = true)
+            OutlinedTextField(dq, { dq = it }, label = { Text("Search Apple Podcasts, gPodder, Feedsearch, Mastodon, Bluesky and PieFed") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search podcast directories" }, singleLine = true)
             Button(onClick = { searching = true; vm.searchDirectory(dq) { hits = it; searching = false } }, Modifier.fillMaxWidth().semantics { contentDescription = "Search directories" }) { Text(if (searching) "Searching..." else "Search") }
             hits.forEach { h -> ActionListItem(h.title, "${h.source}: ${h.feedUrl}", "Podcast ${h.title} from ${h.source}. Double tap to subscribe.", onOpen = { vm.addFeed(h.feedUrl, cat) },
                 actions = listOf("Subscribe" to { vm.addFeed(h.feedUrl, cat) })) }

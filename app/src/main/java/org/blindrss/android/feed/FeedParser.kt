@@ -128,6 +128,16 @@ object FeedDiscovery {
         if (t.contains("reddit.com/r/") && !t.endsWith(".rss")) return t.trimEnd('/') + "/.rss"
         Regex("^(https?://[^/]+)/c/([\\w.-]+)").find(t)?.let { return "${it.groupValues[1]}/feeds/c/${it.groupValues[2]}.xml?sort=Active" }
         Regex("^(https?://[^/]+)/u/([\\w.-]+)").find(t)?.let { if (!t.contains("/feeds/")) return "${it.groupValues[1]}/feeds/u/${it.groupValues[2]}.xml?sort=New" }
+        // YouTube playlist page -> playlist feed.
+        Regex("youtube\\.com/playlist\\?[^#]*list=([\\w-]+)").find(t)?.let { return "https://www.youtube.com/feeds/videos.xml?playlist_id=${it.groupValues[1]}" }
+        // Bluesky profile -> profile RSS (bsky.app/profile/<handle>/rss).
+        Regex("^(https?://bsky\\.app/profile/[\\w.-]+)/?$").find(t)?.let { return "${it.groupValues[1]}/rss" }
+        // GitHub repository -> its releases feed.
+        Regex("^(https?://github\\.com/[\\w.-]+/[\\w.-]+)/?$").find(t)?.let { return "${it.groupValues[1]}/releases.atom" }
+        // Mastodon profile and tag pages serve RSS at the same address + .rss.
+        // Any host: Mastodon-compatible servers (incl. PieFed/Fediverse mirrors) share the /@user and /tags/ shapes.
+        Regex("^(https?://[^/]+/@[\\w.@-]+)/?$").find(t)?.let { if (!t.endsWith(".rss")) return "${it.groupValues[1]}.rss" }
+        Regex("^(https?://[^/]+/tags/[\\w-]+)/?$").find(t)?.let { return "${it.groupValues[1]}.rss" }
         if (!t.startsWith("http")) return "https://$t"
         return t
     }

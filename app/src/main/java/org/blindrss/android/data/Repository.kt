@@ -28,9 +28,18 @@ class Repository(val ctx: Context) {
     private val http: OkHttpClient = shared(ctx).second
 
     suspend fun fetchText(url: String): String = fetchFeed(url, ifChanged = false)!!
+    // The identity every feed/page fetch presents (Settings > Fetching): a
+    // browser user-agent preset plus optional clearance cookies for sites
+    // behind bot protection. Provider API clients use their own auth.
+    private suspend fun identity(): Pair<String, String> =
+        org.blindrss.android.settings.FetchIdentity.userAgent(settings.feedUaPreset.first()) to settings.siteCookies()
+    private fun Request.Builder.identity(ua: String, cookies: String): Request.Builder {
+        header("User-Agent", ua); if (cookies.isNotBlank()) header("Cookie", cookies); return this
+    }
     // Revalidates against the HTTP cache (ETag / Last-Modified). ifChanged: null when the server answered 304.
     private suspend fun fetchFeed(url: String, ifChanged: Boolean = true): String? = withContext(Dispatchers.IO) {
-        http.newCall(Request.Builder().url(url).header("User-Agent", "BlindRSS-Android/1.0").cacheControl(CacheControl.Builder().noCache().build()).build()).execute().use { r ->
+        val (ua, cookies) = identity()
+        http.newCall(Request.Builder().url(url).identity(ua, cookies).cacheControl(CacheControl.Builder().noCache().build()).build()).execute().use { r ->
             if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url")
             if (ifChanged && r.networkResponse?.code == 304) null else r.body?.let { b -> decode(b.bytes(), b.contentType()?.charset()) } ?: "" }
     }
@@ -152,16 +161,41 @@ class Repository(val ctx: Context) {
         if (p is MinifluxProvider && a.remoteId != null) {
             try { val c = withContext(Dispatchers.IO) { p.fetchFullContent(a.remoteId) }; if (FullText.plainLength(c) >= 200) return c } catch (_: Exception) {}
         }
+        // YouTube videos read as articles: description, chapters, transcript
+        // and top comments from yt-dlp (the watch page itself hides all three).
+        if (YoutubeText.isVideoUrl(a.url) && org.blindrss.android.playback.Ytdl.supported()) {
+            try { val yt = youtubeArticleHtml(a.url); if (FullText.plainLength(yt) >= 200) return yt } catch (_: Exception) {}
+        }
+        // Forum threads (Reddit, Lemmy) read as one whole discussion.
+        ForumText.targetFor(a.url, feeds.byId(a.feedId)?.url ?: "")?.let { t ->
+            try { val payloads = listOf(fetchJson(t.jsonUrl)) + (t.commentsUrl?.let { listOf(fetchJson(it)) } ?: emptyList())
+                val thread = ForumText.buildHtml(payloads, t); if (FullText.plainLength(thread) >= 200) return thread } catch (_: Exception) {}
+        }
         val html = fetchArticleHtml(a.url)
         val extracted = FullText.extract(html)
         if (FullText.plainLength(extracted) < 200) throw java.io.IOException("Could not extract article text from this page")
         return extracted
     }
     private suspend fun fetchArticleHtml(url: String): String = withContext(Dispatchers.IO) {
-        http.newCall(Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; SM-X820) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36")
+        val (ua, cookies) = identity()
+        http.newCall(Request.Builder().url(url).identity(ua, cookies)
             .header("Accept", "text/html,application/xhtml+xml").build()).execute().use { r ->
             if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url"); r.body?.string() ?: "" }
+    }
+    // JSON APIs (Reddit, Lemmy) with the same identity as article pages.
+    private suspend fun fetchJson(url: String): String = withContext(Dispatchers.IO) {
+        val (ua, cookies) = identity()
+        http.newCall(Request.Builder().url(url).identity(ua, cookies)
+            .header("Accept", "application/json").build()).execute().use { r ->
+            if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url"); r.body?.string() ?: "" }
+    }
+    // yt-dlp is blocking; its info JSON plus the subtitle track become the article.
+    private suspend fun youtubeArticleHtml(pageUrl: String): String = withContext(Dispatchers.IO) {
+        val info = org.blindrss.android.playback.Ytdl.infoJsonBlocking(ctx, pageUrl)
+        val lines = YoutubeText.subtitleUrl(info)?.let { sub ->
+            try { YoutubeText.transcriptLines(fetchJson(sub)) } catch (_: Exception) { emptyList() } }
+            ?: emptyList()
+        YoutubeText.buildHtml(info, lines)
     }
     suspend fun ensureChapters(a: ArticleEntity): List<ChapterEntity> {
         val existing = misc.chapters(a.id); if (existing.isNotEmpty()) return existing

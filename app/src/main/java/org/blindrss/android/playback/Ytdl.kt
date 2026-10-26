@@ -42,6 +42,18 @@ object Ytdl {
     }
     fun version(ctx: Context): String = YoutubeDL.versionName(ctx.applicationContext) ?: YoutubeDL.version(ctx.applicationContext) ?: "bundled nightly"
 
+    // Full info JSON for a page (description, chapters, subtitle tracks, top
+    // comments) without downloading media. Backs the reader's YouTube full text.
+    fun infoJsonBlocking(ctx: Context, pageUrl: String): String {
+        init(ctx)
+        val req = YoutubeDLRequest(pageUrl).addOption("-J").addOption("--skip-download").addOption("--write-comments")
+            .addOption("--no-playlist").addOption("--no-warnings")
+        val res = try { YoutubeDL.execute(req) } catch (e: Exception) { throw IOException(e.message?.lines()?.lastOrNull { it.isNotBlank() } ?: "yt-dlp failed", e) }
+        val out = res.out.trim()
+        if (!out.startsWith("{")) throw IOException(res.err.lines().lastOrNull { it.isNotBlank() } ?: "No video info found on this page")
+        return out
+    }
+
     // Direct audio address for a page: m4a first (plays everywhere without conversion), else any audio.
     fun streamUrlBlocking(ctx: Context, pageUrl: String): String {
         streams[pageUrl]?.let { (url, at) -> if (System.currentTimeMillis() - at < 3_600_000L) return url }
