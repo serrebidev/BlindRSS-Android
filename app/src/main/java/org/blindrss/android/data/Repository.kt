@@ -193,7 +193,8 @@ class Repository(val ctx: Context) {
     // tombstone table — invisible in Deleted Articles (its query skips blank
     // titles) but still blocking resurrection on refresh; MOVE files the
     // article under a category instead of deleting it.
-    suspend fun deleteArticle(a: ArticleEntity) {
+    suspend fun deleteArticle(row: ArticleEntity) {
+        val a = articles.byId(row.id) ?: row // list rows carry no content; the trash copy needs it
         when (settings.deleteBehaviour.first()) {
             "MOVE" -> articles.setFolder(a.id, settings.deleteMoveTarget.first().ifBlank { "Uncategorized" })
             "PERMANENT" -> { misc.insertDeleted(DeletedArticleEntity(a.id, a.feedId, "", a.url)); articles.deleteById(a.id) }
@@ -216,9 +217,9 @@ class Repository(val ctx: Context) {
         var added = 0
         for (snap in WaybackArchive.snapshotUrls(cdx)) {
             val parsed = try { FeedParser.parse(fetchText(snap), feed.url) } catch (_: Exception) { null } ?: continue
-            val before = articles.byFeed(feed.id).size
+            val before = articles.countByFeed(feed.id)
             saveArticles(feed, parsed.articles)
-            added += (articles.byFeed(feed.id).size - before).coerceAtLeast(0)
+            added += (articles.countByFeed(feed.id) - before).coerceAtLeast(0)
         }
         added }
     // YouTube account: access tokens are refreshed from the stored refresh

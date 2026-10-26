@@ -59,9 +59,11 @@ fun ArticleRow(a: ArticleEntity, feeds: List<FeedEntity>, onOpen: () -> Unit, on
     val downloaded = a.id in vm.downloadedIds.collectAsState().value
     val playable = vm.canPlay(a)
     val state = buildString { if (!a.isRead) append("Unread. "); if (a.isFavorite) append("Favorite. "); if (a.mediaUrl != null) append("Has media. "); if (downloaded) append("Downloaded. ") }
+    // List rows arrive without content, so the spoken article text is loaded for rows on screen only.
+    val full by produceState(a, a, prefs.readText) { if (prefs.readText) value = try { vm.repo.articles.byId(a.id) } catch (_: Exception) { null } ?: a }
     // Reading order (user-configurable): title, source, info, article text, status.
     val speech = ListReading.articleSpeech(a.title, feedTitle, a.author, dateStr,
-        stripHtml(a.description), stripHtml(a.content.ifBlank { a.description }),
+        stripHtml(full.description), stripHtml(full.content.ifBlank { full.description }),
         a.isRead, a.isFavorite, a.mediaUrl != null, prefs,
         SpeechStrings(ctx.getString(R.string.speech_read), ctx.getString(R.string.speech_unread),
             ctx.getString(R.string.speech_from), ctx.getString(R.string.speech_by),
@@ -389,7 +391,6 @@ fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
     val folders by remember { vm.repo.misc.observeSmart() }.collectAsState(emptyList())
     val feeds by vm.feeds.collectAsState()
     var selected by remember { mutableStateOf<SmartFolderEntity?>(null) }
-    val all by remember { vm.repo.articles.observeAll() }.collectAsState(emptyList())
     Scaffold(topBar = { TopAppBar(title = { Text("Smart Folders", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) { LiveAnnouncer(vm)
             OutlinedTextField(name, { name = it }, label = { Text("Folder name") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Smart folder name" })
@@ -398,7 +399,7 @@ fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
             Button(onClick = { if (name.isNotBlank() && value.isNotBlank()) { val n = name; val v = value; val fl = field; kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { try { vm.repo.misc.insertSmart(SmartFolderEntity(name = n, field = fl, value = v)) } catch (_: Exception) {} }; name = ""; value = "" } }, Modifier.semantics { contentDescription = "Create smart folder" }) { Text("Create smart folder") }
             LazyColumn { items(folders, key = { it.id }) { f -> ActionListItem(f.name, "${f.field} contains ${f.value}", "Smart folder ${f.name}, ${f.field} contains ${f.value}. Double tap to show results.", onOpen = { selected = f },
                 actions = listOf("Show results" to { selected = f }, "Delete smart folder" to { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { try { vm.repo.misc.deleteSmart(f) } catch (_: Exception) {} } })) } }
-            selected?.let { f -> Text("Results for ${f.name}", Modifier.semantics { heading() }); val matched = all.filter { a -> val v = when (f.field) { "content" -> a.content; "author" -> a.author; else -> a.title }; v.contains(f.value, true) }; ArticleList(matched, feeds, nav, vm, "No matching articles.") }
+            selected?.let { f -> Text("Results for ${f.name}", Modifier.semantics { heading() }); val matched by remember(f) { vm.repo.articles.smartMatch(f.field, f.value) }.collectAsState(emptyList()); ArticleList(matched, feeds, nav, vm, "No matching articles.") }
         }
     }
 }

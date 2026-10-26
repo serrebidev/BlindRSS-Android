@@ -22,15 +22,18 @@ import kotlinx.coroutines.flow.Flow
     @Query("UPDATE feeds SET category = :newName WHERE category = :oldName") suspend fun renameCategory(oldName: String, newName: String)
     @Query("UPDATE feeds SET lastError = :error, lastErrorAt = :at, consecutiveFailures = consecutiveFailures + 1 WHERE id = :id") suspend fun markFailure(id: Long, error: String?, at: Long)
 }
+// List queries return rows without content and with a 300-character description preview: thousands of full
+// articles exhausted the 256 MB heap. Anything that needs the text loads the article by id (byId / observeById).
+const val LIST_COLUMNS = "id, feedId, title, url, '' AS content, substr(description, 1, 300) AS description, date, author, isRead, isFavorite, mediaUrl, mediaType, remoteId, chaptersUrl, labels, folder"
 @Dao interface ArticleDao {
-    @Query("SELECT * FROM articles ORDER BY date DESC") fun observeAll(): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE isRead = 0 ORDER BY date DESC") fun observeUnread(): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE isRead = 1 ORDER BY date DESC") fun observeRead(): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE isFavorite = 1 ORDER BY date DESC") fun observeFavorites(): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE mediaUrl IS NOT NULL ORDER BY date DESC") fun observePodcasts(): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE feedId = :feedId ORDER BY date DESC") fun observeByFeed(feedId: Long): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE title LIKE '%' || :q || '%' OR content LIKE '%' || :q || '%' OR description LIKE '%' || :q || '%' ORDER BY date DESC") fun search(q: String): Flow<List<ArticleEntity>>
-    @Query("SELECT * FROM articles WHERE title LIKE '%' || :q || '%' ORDER BY date DESC") fun searchTitles(q: String): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles ORDER BY date DESC") fun observeAll(): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE isRead = 0 ORDER BY date DESC") fun observeUnread(): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE isRead = 1 ORDER BY date DESC") fun observeRead(): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE isFavorite = 1 ORDER BY date DESC") fun observeFavorites(): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE mediaUrl IS NOT NULL ORDER BY date DESC") fun observePodcasts(): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE feedId = :feedId ORDER BY date DESC") fun observeByFeed(feedId: Long): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE title LIKE '%' || :q || '%' OR content LIKE '%' || :q || '%' OR description LIKE '%' || :q || '%' ORDER BY date DESC") fun search(q: String): Flow<List<ArticleEntity>>
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE title LIKE '%' || :q || '%' ORDER BY date DESC") fun searchTitles(q: String): Flow<List<ArticleEntity>>
     // Age retention: drop non-favorites older than the cutoff.
     @Query("DELETE FROM articles WHERE isFavorite = 0 AND date > 0 AND date < :cutoff") suspend fun deleteOlderThan(cutoff: Long)
     @Query("UPDATE articles SET folder = :folder WHERE id = :id") suspend fun setFolder(id: String, folder: String?)
@@ -57,6 +60,8 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM articles WHERE isRead = 0 AND url != '' AND mediaUrl IS NULL AND date > :since AND instr(labels, '__fulltext') = 0 ORDER BY date DESC LIMIT :n") suspend fun offlineCandidates(n: Int, since: Long): List<ArticleEntity>
     @Query("UPDATE articles SET content = :content, labels = :labels WHERE id = :id") suspend fun setContent(id: String, content: String, labels: String)
     @Query("SELECT COUNT(*) FROM articles WHERE isRead = 0") fun unreadCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM articles WHERE feedId = :feedId") suspend fun countByFeed(feedId: Long): Int
+    @Query("SELECT $LIST_COLUMNS FROM articles WHERE CASE :field WHEN 'content' THEN content WHEN 'author' THEN author ELSE title END LIKE '%' || :value || '%' ORDER BY date DESC") fun smartMatch(field: String, value: String): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE feedId = :feedId") suspend fun byFeed(feedId: Long): List<ArticleEntity>
     @Query("UPDATE articles SET id = :to WHERE id = :from") suspend fun rekey(from: String, to: String)
 }

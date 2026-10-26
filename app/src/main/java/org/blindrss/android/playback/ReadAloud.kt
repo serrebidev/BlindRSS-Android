@@ -25,7 +25,8 @@ class ReadAloud(private val ctx: Context, private val repo: Repository, private 
     fun start(a: ArticleEntity) { job?.cancel(); job = scope.launch {
         try { speak(a) } catch (e: CancellationException) { throw e } catch (e: Exception) { synthesizing = false; announce("Read aloud failed: ${e.message}") } } }
 
-    private suspend fun speak(a: ArticleEntity) {
+    private suspend fun speak(row: ArticleEntity) {
+        val a = repo.articles.byId(row.id) ?: row // list rows carry no content
         val engine = engine()
         withContext(Dispatchers.IO) { dir.deleteRecursively(); dir.mkdirs() }
         val body = try { repo.fullText(a) } catch (_: Exception) { a.content.ifBlank { a.description } }
