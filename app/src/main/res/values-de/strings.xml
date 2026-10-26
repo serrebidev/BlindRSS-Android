@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS de gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">Einstellungen</string>
+    <string name="all_articles">Alle Artikel</string>
+    <string name="unread">Ungelesen</string>
+    <string name="read_articles">Gelesen</string>
+    <string name="favorites">Favoriten</string>
+    <string name="video_search_title">Videosuche</string>
+    <string name="deleted_articles">Gelöschte Artikel</string>
+    <string name="feeds_with_errors">Feeds mit Fehlern</string>
+    <string name="smart_folders">Intelligente Ordner</string>
+    <string name="filter_rules">Filterregeln</string>
+    <string name="add_feed">Feed hinzufügen</string>
+    <string name="search">Suchen</string>
+    <string name="play">Abspielen</string>
+    <string name="search_articles">Artikel durchsuchen</string>
+    <string name="category">Kategorie</string>
+    <string name="subscribe">Abonnieren</string>
+    <string name="import_opml">OPML importieren</string>
+    <string name="export_opml">OPML exportieren</string>
+    <string name="video_search_all_sites">Alle Seiten</string>
+    <string name="check_for_updates">Nach Updates suchen</string>
+</resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS ja gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">設定</string>
+    <string name="all_articles">すべての記事</string>
+    <string name="unread">未読</string>
+    <string name="read_articles">既読</string>
+    <string name="favorites">お気に入り</string>
+    <string name="video_search_title">動画検索</string>
+    <string name="deleted_articles">削除済みの記事</string>
+    <string name="feeds_with_errors">エラーのあるフィード</string>
+    <string name="smart_folders">スマートフォルダー</string>
+    <string name="filter_rules">フィルタールール</string>
+    <string name="add_feed">フィードを追加</string>
+    <string name="search">検索</string>
+    <string name="play">再生</string>
+    <string name="search_articles">記事を検索</string>
+    <string name="category">カテゴリ</string>
+    <string name="subscribe">登録</string>
+    <string name="import_opml">OPML をインポート</string>
+    <string name="export_opml">OPML をエクスポート</string>
+    <string name="video_search_all_sites">すべてのサイト</string>
+    <string name="check_for_updates">アップデートを確認</string>
+</resources>

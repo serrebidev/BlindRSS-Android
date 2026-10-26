@@ -33,7 +33,8 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Podcast archive, YouTube account recommendations | Desktop-only | Needs YouTube OAuth scrape; no Android equivalent shipped |
 | Casting | Done (DLNA) | SSDP discovery + UPnP AVTransport SOAP play/stop in Player (`cast/Dlna.kt`); Chromecast/AirPlay need Play Services/proprietary protocols |
 | Equalizer, silence skip, SponsorBlock | Done | AndroidFX Equalizer (5-band sliders, persisted), ExoPlayer skipSilence, SponsorBlock API skip for YouTube articles (sponsor/selfpromo/interaction) |
-| Tray, hotkeys, updater, cookies/captcha | Desktop-only | Windows concepts; replaced by notifications, TalkBack actions, store updates |
+| Tray, hotkeys, cookies/captcha | Desktop-only | Windows concepts; replaced by notifications, TalkBack actions |
+| Updater (self-update) | Done (v0.11.0) | `update/AppUpdate.kt`: checks this repo's GitHub releases (on start, throttled to daily, toggle in Settings > About), announces via a TalkBack-friendly dialog on Home and a panel in About, downloads the release APK with spoken progress, hands it to the Android installer through a FileProvider URI with the standard unknown-apps permission flow. Releases use the repo's own signing config, so updates install over the current build |
 
 ## Provider matrix
 
@@ -68,15 +69,34 @@ Home > Discover News Sources: search by publisher name, topic, or website URL; b
 | Desktop feature | Android status | Notes |
 |---|---|---|
 | YouTube articles: description, transcript, chapters inline | Done | `feed/YoutubeText.kt` + `Ytdl.infoJsonBlocking` (-J --write-comments); reader Fetch full text / full-text open mode / read aloud. Top comments included, best effort |
-| Reddit / Lemmy discussions as whole threads | Done | `feed/ForumText.kt`: Reddit public .json, Lemmy v3 API (feed must be served by the same instance). Groups.io / Google Groups need account sessions: not ported |
+| Reddit / Lemmy discussions as whole threads | Done | `feed/ForumText.kt`: Reddit public .json, Lemmy v3 API (feed must be served by the same instance). Groups.io / Google Groups added in v0.11.0 (below) |
 | Subscribe shortcuts (Mastodon, Bluesky, PieFed, GitHub, YouTube playlists) | Done | `FeedDiscovery.normalizeInput` URL transforms |
-| Feed search: Feedsearch, Mastodon, Bluesky, PieFed | Done | `DiscoverySearch` keyless public APIs, added to Apple/gPodder. SoundCloud/Mixcloud feed search and yt-dlp "listing feeds" stay desktop-only (scraped enumeration, no stable API) |
+| Feed search: Feedsearch, Mastodon, Bluesky, PieFed | Done | `DiscoverySearch` keyless public APIs, added to Apple/gPodder. SoundCloud/Mixcloud feed search and yt-dlp "listing feeds" added in v0.11.0 (below) |
 | Bot protection: configurable browser identity + clearance cookies | Done (subset) | Settings > Sync and notifications > Fetching: user-agent presets + a pasted Cookie header (Keystore-encrypted), applied to feed/article fetches. Desktop imports cookies from a desktop browser, which has no Android equivalent |
 | Offline user guide | Done | Home menu > User guide and Settings > About; Android guide bundled as an asset, one TalkBack stop per block |
 | Refresh complete sound (Miniflux chime, v2.4.5/v2.4.6) | Done | Short notification sound after manual refreshes; toggle in Sync settings |
-| Video Search (yt-dlp site media search) | Not ported | A separate media-browsing surface; playback of found pages already works via article actions |
-| 15-language UI translations | Not ported | UI strings are hardcoded in Compose; needs a full string-extraction project |
-| Reading position on status bar (v2.4.0) | Desktop-only UI | Android reader is a block list with TalkBack position; no status bar analogue |
+| Video Search (yt-dlp site media search) | Done (v0.11.0) | See the v0.11.0 section below |
+| 15-language UI translations | Framework done (v0.11.0) | String resources wired on the core surfaces; per-language files generated from the desktop catalogs. Full extraction of every screen is the remaining work — see v0.11.0 below |
+| Reading position on status bar (v2.4.0) | Done (v0.11.0, as an equivalent) | "Paragraph X of Y" readout in the reader header — see v0.11.0 below |
+
+## v0.11.0 parity pass (against desktop v2.5.1)
+
+Round 2 re-judged every v0.10.0 skip. Library research first (Brandon's rule: search before declaring anything impossible):
+
+| Candidate | Verdict | Evidence |
+|---|---|---|
+| NewPipeExtractor (TeamNewPipe) | Not adopted | Actively maintained (repo pushed 2026-10-23, ~2,000 stars, GPL-3.0) but covers only YouTube, SoundCloud, PeerTube, Bandcamp and media.ccc.de — no Mixcloud, no generic listing enumeration — and would add a second extraction stack (plus the Rhino JS engine and core-library desugaring below API 33) next to the yt-dlp runtime the app already bundles |
+| yausername/youtube-dl-android | Already in the app | GPL-3.0, upstream pushed 2025-11-16 (~1,400 stars). The app bundles a maintained fork of it (Darkstar085/youtubedl-kotlin, `:ytdl` module); its yt-dlp self-updates to nightly at runtime. Round 1's "no Android analogue" was wrong: the desktop's exact mechanism — `yt-dlp -J --flat-playlist` over search keys and listing pages — was already on the device |
+| SoundCloud / Mixcloud public APIs | Adopted, no library needed | Mixcloud's keyless api.mixcloud.com (search + per-user cloudcasts); SoundCloud api-v2 with a client_id fetched at runtime from SoundCloud's own web assets — the desktop's and yt-dlp's own approach, nothing hardcoded |
+
+| Desktop feature | Android status | Notes |
+|---|---|---|
+| Video Search (Tools menu) | Done | `feed/VideoSearch.kt` + `ui/VideoSearchScreen.kt` (Home view + menu, route `videosearch`): the desktop's non-adult yt-dlp search sites (YouTube incl. newest-first, SoundCloud, Bilibili, Niconico, Rokfin, PRX Series/Stories, Netverse) via the bundled yt-dlp flat search, plus Mixcloud via its API. Results are one TalkBack stop each with Play / Play next / Up next / Download / Subscribe to channel / Open in browser; playback and downloads resolve the page through yt-dlp like YouTube articles. The desktop's adult sites (behind a desktop setting) are not ported |
+| SoundCloud / Mixcloud feed search | Done | In Add Feed directory search: SoundCloud api-v2 user + playlist search, Mixcloud user search — the desktop's keyless sources |
+| Listing feeds (SoundCloud/Mixcloud pages, YouTube search pages, generic pages) | Done | `feed/MediaSites.kt` + `Repository.fetchListingFeed`: a SoundCloud user/playlist page (API enumeration, real publish dates, yt-dlp flat listing as fallback), a Mixcloud user page (API cloudcasts), a Google Groups group page (conversation enumeration) or a YouTube search-results page (yt-dlp) subscribes as a feed and enumerates on refresh; any other page that does not parse as a feed also falls back to yt-dlp enumeration. `feeds.soundcloud.com` stays on the native RSS path. Articles play/download through the yt-dlp page resolver |
+| Groups.io / Google Groups thread reading | Done (public path) | `ForumText` GROUPS_IO / GOOGLE_GROUPS targets, parsed with the jsoup the app already ships: public topics/conversations read as one whole article, Groups.io paging followed (max 5 pages), a Groups.io message link resolves to its topic, and subscribing to a Groups.io group page maps to the group's native RSS. The round-1 "needs account sessions" was only partly right: the desktop's optional Groups.io API key covers member-only archives and very large topics; that path, and sign-in-only Google Groups, stay desktop-only (the app has no Groups.io account setting) — a sign-in-only group answers with a clear error |
+| Reading position (desktop status bar, v2.4.0) | Done (equivalent) | The reader header shows "Paragraph X of Y", tracking the first visible block, with the same text as its TalkBack description — the Android-shaped form of the desktop's "Line X of Y" |
+| 15-language UI translations | Framework + core surfaces done | `res/values/strings.xml` (58 strings) wired with `stringResource` on Home (views, menu, unread count), the reader (title, buttons, reading position), Add Feed, Search, the Settings hub + About/update UI, Video Search, and every Back description. Per-language `values-<lang>/strings.xml` for all 15 desktop locales are generated from the desktop gettext catalogs by matching English msgids: the shared labels (All Articles, Unread, Favorites, Settings, Search, Subscribe, Video Search, Category, OPML actions, Play, Check for Updates, All sites, ...) — 20-21 strings per language, 301 entries — translate everywhere; Android-specific strings (update flow, reading position, section names) and differently-worded labels fall back to English until the desktop catalogs gain them. Not yet extracted: Settings detail sections, Player screens, Discover, provider setup, error/status text and the list-speech templates in `ListReading` |
 
 ## Known gaps
 

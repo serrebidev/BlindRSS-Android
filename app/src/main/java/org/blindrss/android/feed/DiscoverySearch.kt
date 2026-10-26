@@ -22,6 +22,10 @@ object DiscoverySearch {
         try { out += parseBluesky(get("https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead?q=$q&limit=10")) } catch (_: Exception) {}
         try { out += parsePiefed(get("https://piefed.social/api/alpha/search?q=$q&type_=Communities&limit=10"), "PieFed community") } catch (_: Exception) {}
         try { out += parsePiefed(get("https://piefed.social/api/alpha/search?q=$q&type_=Users&limit=10"), "PieFed user") } catch (_: Exception) {}
+        // SoundCloud/Mixcloud hits are page addresses; subscribing enumerates
+        // them as listing feeds (see MediaSites).
+        try { out += SoundCloudApi.searchFeeds(query) } catch (_: Exception) {}
+        try { out += MixcloudApi.searchFeeds(query) } catch (_: Exception) {}
         return out.distinctBy { it.feedUrl }
     }
     fun mastodonSearchUrl(query: String): String {
@@ -70,11 +74,4 @@ object DiscoverySearch {
     }
 }
 
-// App update check against this repo's GitHub releases.
-object UpdateCheck {
-    private val http = OkHttpClient()
-    suspend fun latestVersion(): String? = withContext(Dispatchers.IO) {
-        try { http.newCall(Request.Builder().url("https://api.github.com/repos/serrebidev/BlindRSS-Android/releases/latest").header("User-Agent", "BlindRSS-Android").build()).execute().use { r ->
-            val t = r.body?.string() ?: return@use null; Regex("\"tag_name\"\\s*:\\s*\"v?([^\"]+)\"").find(t)?.groupValues?.get(1) } } catch (_: Exception) { null }
-    }
-}
+// App updates live in update/AppUpdate.kt (full release info + installer).

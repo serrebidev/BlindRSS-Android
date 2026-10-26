@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS sv gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">Inställningar</string>
+    <string name="all_articles">Alla artiklar</string>
+    <string name="unread">Oläst</string>
+    <string name="read_articles">Läst</string>
+    <string name="favorites">Favoriter</string>
+    <string name="video_search_title">Videosökning</string>
+    <string name="deleted_articles">Borttagna artiklar</string>
+    <string name="feeds_with_errors">Flöden med fel</string>
+    <string name="smart_folders">Smarta mappar</string>
+    <string name="filter_rules">Filterregler</string>
+    <string name="add_feed">Lägg till flöde</string>
+    <string name="search">Sök</string>
+    <string name="play">Spela upp</string>
+    <string name="search_articles">Sök i artiklar</string>
+    <string name="category">Kategori</string>
+    <string name="subscribe">Prenumerera</string>
+    <string name="import_opml">Importera OPML</string>
+    <string name="export_opml">Exportera OPML</string>
+    <string name="video_search_all_sites">Alla webbplatser</string>
+    <string name="check_for_updates">Sök efter uppdateringar</string>
+</resources>

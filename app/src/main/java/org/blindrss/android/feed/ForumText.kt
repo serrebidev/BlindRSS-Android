@@ -4,10 +4,12 @@ import org.json.JSONObject
 
 // Forum threads read as one whole article, mirroring desktop forum_sources.py:
 // the original post followed by the discussion, in thread order. Reddit via
-// its public .json, Lemmy via its v3 API. Groups.io and Google Groups need
-// account sessions and are not covered. Parsing is pure; Repository fetches.
+// its public .json, Lemmy via its v3 API, Groups.io and Google Groups via
+// their public pages (the desktop's HTML path; its optional Groups.io API-key
+// path covers member-only archives and has no Android account setting).
+// Parsing is pure; Repository fetches.
 object ForumText {
-    enum class Kind { REDDIT, LEMMY }
+    enum class Kind { REDDIT, LEMMY, GROUPS_IO, GOOGLE_GROUPS }
     data class Target(val kind: Kind, val jsonUrl: String, val commentsUrl: String? = null)
 
     private const val MAX_COMMENTS = 100
@@ -20,6 +22,8 @@ object ForumText {
             val m = Regex("^/r/([\\w]+)/comments/([\\w]+)").find(path) ?: return null
             return Target(Kind.REDDIT, "https://www.reddit.com/r/${m.groupValues[1]}/comments/${m.groupValues[2]}.json?raw_json=1")
         }
+        if (GoogleGroups.isThreadUrl(articleUrl)) return Target(Kind.GOOGLE_GROUPS, articleUrl)
+        if (GroupsIo.isThreadUrl(articleUrl)) return Target(Kind.GROUPS_IO, articleUrl)
         // Lemmy post pages are /post/<id> on the instance that served the feed;
         // requiring the feed on the same host keeps blog /post/123 URLs out.
         val post = Regex("^/post/(\\d+)/?$").find(path)
@@ -37,6 +41,11 @@ object ForumText {
     fun buildHtml(payloads: List<String>, target: Target): String = when (target.kind) {
         Kind.REDDIT -> redditHtml(payloads.firstOrNull() ?: "")
         Kind.LEMMY -> lemmyHtml(payloads.getOrNull(0) ?: "", payloads.getOrNull(1) ?: "")
+        Kind.GOOGLE_GROUPS -> GoogleGroups.threadHtml(payloads.firstOrNull() ?: "", target.jsonUrl)
+        // Payloads are the topic's pages, in order (Repository follows the
+        // "next page" links); render them as one document.
+        Kind.GROUPS_IO -> { val pages = payloads.map { GroupsIo.parseTopicPage(it, target.jsonUrl) }
+            GroupsIo.renderDocument(pages.firstOrNull()?.title ?: "", pages) }
     }
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

@@ -44,6 +44,21 @@ object Ytdl {
 
     // Full info JSON for a page (description, chapters, subtitle tracks, top
     // comments) without downloading media. Backs the reader's YouTube full text.
+    // One flat-playlist JSON document for a search query target
+    // ("ytsearch20:cats") or a listing page URL (channel/playlist page).
+    // The same -J --flat-playlist shape as the desktop's yt-dlp calls.
+    fun flatJsonBlocking(ctx: Context, target: String, limit: Int): String {
+        init(ctx)
+        val request = YoutubeDLRequest(target)
+        request.addOption("-J")
+        request.addOption("--flat-playlist")
+        request.addOption("--playlist-end", limit.coerceIn(1, 200).toString())
+        request.addOption("--skip-download")
+        request.addOption("--no-warnings")
+        val response = YoutubeDL.getInstance().execute(request, null, null)
+        return response.out ?: ""
+    }
+
     fun infoJsonBlocking(ctx: Context, pageUrl: String): String {
         init(ctx)
         val req = YoutubeDLRequest(pageUrl).addOption("-J").addOption("--skip-download").addOption("--write-comments")

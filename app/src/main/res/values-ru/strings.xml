@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS ru gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">Настройки</string>
+    <string name="all_articles">Все статьи</string>
+    <string name="unread">Непрочитано</string>
+    <string name="read_articles">Прочитано</string>
+    <string name="favorites">Избранное</string>
+    <string name="video_search_title">Поиск видео</string>
+    <string name="deleted_articles">Удалённые статьи</string>
+    <string name="feeds_with_errors">Каналы с ошибками</string>
+    <string name="smart_folders">Смарт-папки</string>
+    <string name="filter_rules">Правила фильтрации</string>
+    <string name="add_feed">Добавить канал</string>
+    <string name="search">Поиск</string>
+    <string name="article">Статья</string>
+    <string name="play">Воспроизведение</string>
+    <string name="search_articles">Поиск статей</string>
+    <string name="category">Категория</string>
+    <string name="subscribe">Подписаться</string>
+    <string name="import_opml">Импорт OPML</string>
+    <string name="export_opml">Экспорт OPML</string>
+    <string name="video_search_all_sites">Все сайты</string>
+    <string name="check_for_updates">Проверить наличие обновлений</string>
+</resources>

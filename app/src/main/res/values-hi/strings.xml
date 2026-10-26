@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS hi gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">सेटिंग्स</string>
+    <string name="all_articles">सभी लेख</string>
+    <string name="unread">अपठित</string>
+    <string name="read_articles">पठित</string>
+    <string name="favorites">पसंदीदा</string>
+    <string name="video_search_title">वीडियो खोज</string>
+    <string name="deleted_articles">हटाए गए लेख</string>
+    <string name="feeds_with_errors">त्रुटियों वाली फ़ीड</string>
+    <string name="smart_folders">स्मार्ट फ़ोल्डर</string>
+    <string name="filter_rules">फ़िल्टर नियम</string>
+    <string name="add_feed">फ़ीड जोड़ें</string>
+    <string name="search">खोजें</string>
+    <string name="play">चलाएं</string>
+    <string name="search_articles">लेख खोजें</string>
+    <string name="category">श्रेणी</string>
+    <string name="subscribe">सदस्यता लें</string>
+    <string name="import_opml">OPML आयात करें</string>
+    <string name="export_opml">OPML निर्यात करें</string>
+    <string name="video_search_all_sites">सभी साइटें</string>
+    <string name="check_for_updates">अपडेट के लिए जांचें</string>
+</resources>

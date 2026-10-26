@@ -34,6 +34,62 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val canSaveToIntegrations: StateFlow<Boolean> = repo.settings.provider.map { it == ProviderType.MINIFLUX }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     fun saveToIntegrations(a: ArticleEntity) { viewModelScope.launch { announce(try { repo.saveToIntegrations(a); "Saved: ${a.title}" } catch (e: Exception) { "Save failed: ${e.message}" }) } }
     fun refreshOnLaunch() { viewModelScope.launch { SyncWorker.schedule(getApplication()); if (repo.settings.refreshOnStart.first()) refreshAll(chime = false) } }
+    // ---- Self-update (GitHub releases) ----
+    val appUpdate = MutableStateFlow<org.blindrss.android.update.AppUpdate.ReleaseInfo?>(null)
+    fun dismissAppUpdate() { appUpdate.value = null }
+    // On start, throttled to one check a day; manual checks (Settings >
+    // About) pass manual = true. A newer release lands in appUpdate, which
+    // Home surfaces as a dialog — never a silent toast.
+    fun checkAppUpdate(manual: Boolean = false, onResult: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                if (!manual) {
+                    if (!repo.settings.autoUpdateCheck.first()) return@launch
+                    val last = repo.settings.updateLastCheck.first()
+                    if (System.currentTimeMillis() - last < 24 * 60 * 60 * 1000L) return@launch
+                }
+                repo.settings.setUpdateLastCheck(System.currentTimeMillis())
+                val info = org.blindrss.android.update.AppUpdate.latestRelease()
+                val installed = org.blindrss.android.update.AppUpdate.installedVersion(getApplication())
+                when {
+                    info == null -> onResult?.invoke("Update check failed. Are you online?")
+                    org.blindrss.android.update.AppUpdate.isNewer(info.version, installed) -> { appUpdate.value = info; onResult?.invoke("Version ${info.version} is available.") }
+                    else -> onResult?.invoke("Up to date.")
+                }
+            } catch (_: Exception) { onResult?.invoke("Update check failed. Are you online?") }
+        }
+    }
+    // ---- Video Search ----
+    // A search result becomes a throwaway ArticleEntity (feed 0): the player
+    // and downloader resolve its page URL through yt-dlp, exactly like a
+    // YouTube article with no direct media link.
+    fun videoArticle(r: org.blindrss.android.feed.VideoResult): ArticleEntity = ArticleEntity(
+        id = org.blindrss.android.feed.FeedParser.stableId("video-search", r.url), feedId = 0,
+        title = r.title, url = r.url,
+        date = if (r.uploadDateMs > 0) r.uploadDateMs else System.currentTimeMillis(),
+        author = r.uploader)
+    fun canPlayVideo(r: org.blindrss.android.feed.VideoResult): Boolean =
+        Ytdl.supported() && org.blindrss.android.feed.MediaSites.isPlayablePage(r.url)
+    fun searchVideos(query: String, siteId: String, onDone: (List<org.blindrss.android.feed.VideoResult>, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val results = when (siteId) {
+                    "all" -> { val out = mutableListOf<org.blindrss.android.feed.VideoResult>()
+                        for (id in listOf("youtube", "soundcloud")) org.blindrss.android.feed.VideoSearch.site(id)?.let { s ->
+                            try { out += org.blindrss.android.feed.VideoSearch.parseFlatEntries(
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ytdl.flatJsonBlocking(getApplication(), org.blindrss.android.feed.VideoSearch.queryTarget(s, query, 20), 20) }, s.label) } catch (_: Exception) {} }
+                        try { out += org.blindrss.android.feed.MixcloudApi.searchMedia(query, 20) } catch (_: Exception) {}
+                        out }
+                    "mixcloud" -> org.blindrss.android.feed.MixcloudApi.searchMedia(query, 40)
+                    else -> { val s = org.blindrss.android.feed.VideoSearch.site(siteId) ?: throw IllegalArgumentException("Unknown site")
+                        if (!Ytdl.supported()) { onDone(emptyList(), "Video search needs yt-dlp support (ARM64 device, Android 10 or newer)."); return@launch }
+                        org.blindrss.android.feed.VideoSearch.parseFlatEntries(
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Ytdl.flatJsonBlocking(getApplication(), org.blindrss.android.feed.VideoSearch.queryTarget(s, query, 40), 40) }, s.label) }
+                }
+                onDone(results, if (results.isEmpty()) "No results." else null)
+            } catch (e: Exception) { onDone(emptyList(), "Search failed: ${e.message}") }
+        }
+    }
     fun syncNow() { viewModelScope.launch { announce("Syncing"); announce(try { repo.syncProvider() } catch (e: Exception) { "Sync failed: ${e.message}" }) } }
     // Provider feeds come only through the provider; fetching them directly would duplicate articles.
     fun refreshFeed(f: FeedEntity) { if (f.remoteId != null) return syncNow(); viewModelScope.launch { try { val n = repo.refreshFeed(f); announce("Refreshed ${f.title}. $n new articles.") } catch (e: Exception) { announce("Error refreshing ${f.title}: ${e.message}") } } }
@@ -53,7 +109,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun markFeedRead(f: FeedEntity) { viewModelScope.launch { repo.markFeedRead(f); announce("Marked all read in ${f.title}") } }
     fun importOpml(xml: String) { viewModelScope.launch { val n = repo.importOpml(xml); announce("Imported $n feeds from OPML") } }
     // Episodes, and pages yt-dlp can play (YouTube and similar) on supported devices.
-    fun canPlay(a: ArticleEntity) = a.mediaUrl != null || (isYouTube(a.url) && Ytdl.supported())
+    fun canPlay(a: ArticleEntity) = a.mediaUrl != null || (Ytdl.supported() && (isYouTube(a.url) || org.blindrss.android.feed.MediaSites.isPlayablePage(a.url)))
     fun play(a: ArticleEntity) { viewModelScope.launch { player.play(a); announce(if (a.mediaUrl == null) "Loading audio: ${a.title}" else "Playing: ${a.title}") } }
     fun playNext(a: ArticleEntity) { viewModelScope.launch { player.playNext(a); announce("Playing next: ${a.title}") } }
     fun enqueue(a: ArticleEntity) { viewModelScope.launch { player.enqueue(a); announce("Added to Up next: ${a.title}") } }

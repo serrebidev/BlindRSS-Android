@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS zh_CN gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">设置</string>
+    <string name="all_articles">所有文章</string>
+    <string name="unread">未读</string>
+    <string name="read_articles">已读</string>
+    <string name="favorites">收藏</string>
+    <string name="video_search_title">视频搜索</string>
+    <string name="deleted_articles">已删除文章</string>
+    <string name="feeds_with_errors">有错误的订阅源</string>
+    <string name="smart_folders">智能文件夹</string>
+    <string name="filter_rules">过滤规则</string>
+    <string name="add_feed">添加订阅源</string>
+    <string name="search">搜索</string>
+    <string name="play">播放</string>
+    <string name="search_articles">搜索文章</string>
+    <string name="category">类别</string>
+    <string name="subscribe">订阅</string>
+    <string name="import_opml">导入 OPML</string>
+    <string name="export_opml">导出 OPML</string>
+    <string name="video_search_all_sites">所有站点</string>
+    <string name="check_for_updates">检查更新</string>
+</resources>

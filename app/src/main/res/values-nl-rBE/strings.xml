@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS nl_BE gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">Instellingen</string>
+    <string name="all_articles">Alle artikelen</string>
+    <string name="unread">Ongelezen</string>
+    <string name="read_articles">Gelezen</string>
+    <string name="favorites">Favorieten</string>
+    <string name="video_search_title">Videozoekopdracht</string>
+    <string name="deleted_articles">Verwijderde artikelen</string>
+    <string name="feeds_with_errors">Feeds met fouten</string>
+    <string name="smart_folders">Slimme mappen</string>
+    <string name="filter_rules">Filterregels</string>
+    <string name="add_feed">Feed toevoegen</string>
+    <string name="search">Zoeken</string>
+    <string name="play">Afspelen</string>
+    <string name="search_articles">Artikelen doorzoeken</string>
+    <string name="category">Categorie</string>
+    <string name="subscribe">Abonneren</string>
+    <string name="import_opml">OPML importeren</string>
+    <string name="export_opml">OPML exporteren</string>
+    <string name="video_search_all_sites">Alle sites</string>
+    <string name="check_for_updates">Controleren op updates</string>
+</resources>

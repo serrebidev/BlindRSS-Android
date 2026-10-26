@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the desktop BlindRSS es gettext catalog; do not edit by hand. -->
+<resources>
+    <string name="settings">Configuración</string>
+    <string name="all_articles">Todos los artículos</string>
+    <string name="unread">No leído</string>
+    <string name="read_articles">Leído</string>
+    <string name="favorites">Favoritos</string>
+    <string name="video_search_title">Búsqueda de video</string>
+    <string name="deleted_articles">Artículos eliminados</string>
+    <string name="feeds_with_errors">Fuentes con errores</string>
+    <string name="smart_folders">Carpetas inteligentes</string>
+    <string name="filter_rules">Reglas de filtro</string>
+    <string name="add_feed">Agregar fuente</string>
+    <string name="search">Buscar</string>
+    <string name="play">Reproducir</string>
+    <string name="search_articles">Buscar artículos</string>
+    <string name="category">Categoría</string>
+    <string name="subscribe">Suscribirse</string>
+    <string name="import_opml">Importar OPML</string>
+    <string name="export_opml">Exportar OPML</string>
+    <string name="video_search_all_sites">Todos los sitios</string>
+    <string name="check_for_updates">Buscar actualizaciones</string>
+</resources>

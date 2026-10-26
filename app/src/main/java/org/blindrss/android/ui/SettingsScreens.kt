@@ -26,7 +26,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.launch
+import org.blindrss.android.R
 import org.blindrss.android.settings.ProviderType
 import org.blindrss.android.settings.SettingsStore
 import org.blindrss.android.sync.SyncWorker
@@ -35,7 +37,8 @@ import org.blindrss.android.sync.SyncWorker
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsPage(title: String, nav: NavController, vm: AppViewModel, content: LazyListScope.() -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    val ctx = LocalContext.current
+    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp), content = content) }
     }
 }
@@ -61,6 +64,11 @@ private fun SettingsPage(title: String, nav: NavController, vm: AppViewModel, co
 @Composable private fun WideButton(label: String, enabled: Boolean = true, onClick: () -> Unit) =
     Button(onClick, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), enabled = enabled) { Text(label) }
 
+private fun sectionTitleRes(route: String): Int = when (route) {
+    "reading" -> R.string.settings_reading; "lists" -> R.string.settings_lists
+    "sync" -> R.string.settings_sync; "playback" -> R.string.settings_playback
+    "discovery" -> R.string.settings_discovery; else -> R.string.settings_about
+}
 private val sections = listOf(
     Triple("Reading", "reading", Icons.AutoMirrored.Filled.MenuBook), Triple("Article lists", "lists", Icons.AutoMirrored.Filled.ViewList),
     Triple("Sync and notifications", "sync", Icons.Filled.Sync), Triple("Playback", "playback", Icons.Filled.PlayCircle),
@@ -74,7 +82,7 @@ fun SettingsScreen(nav: NavController, vm: AppViewModel) {
     LaunchedEffect(active) { who = s.account(active).let { it.user.ifEmpty { it.url } } }
     var addMenu by remember { mutableStateOf(false) }; var confirmSignOut by remember { mutableStateOf(false) }
     SettingsPage("Settings", nav, vm) {
-        item { Heading("Account") }
+        item { Heading(stringResource(R.string.account)) }
         item { ListItem(headlineContent = { Text(active.label) }, leadingContent = { Icon(Icons.Filled.AccountCircle, null) },
             supportingContent = { Text(if (active == ProviderType.LOCAL) "Feeds refresh on this device" else who.ifEmpty { "Signed in" }) },
             modifier = Modifier.semantics(mergeDescendants = true) {}) }
@@ -86,8 +94,8 @@ fun SettingsScreen(nav: NavController, vm: AppViewModel) {
             Button({ addMenu = true }) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(8.dp)); Text("Add provider") }
             DropdownMenu(addMenu, { addMenu = false }) { ProviderType.entries.filter { it != ProviderType.LOCAL }.forEach { p ->
                 DropdownMenuItem({ Text(p.label) }, { addMenu = false; nav.navigate("settings/provider/${p.name}") }) } } } }
-        item { Heading("Preferences") }
-        items(sections) { (label, route, icon) -> ListItem(headlineContent = { Text(label) }, leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Filled.ChevronRight, null) },
+        item { Heading(stringResource(R.string.preferences)) }
+        items(sections) { (label, route, icon) -> ListItem(headlineContent = { Text(stringResource(sectionTitleRes(route))) }, leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Filled.ChevronRight, null) },
             modifier = Modifier.clickable(role = Role.Button) { nav.navigate("settings/$route") }) }
     }
     if (confirmSignOut) AlertDialog(onDismissRequest = { confirmSignOut = false }, title = { Text("Sign out of ${active.label}?") }, text = { Text("Feeds already synced stay on this device.") },
@@ -261,19 +269,19 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { Status(status) }
             } }
         else -> { val version = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "unknown" }
-            var newer by remember { mutableStateOf<String?>(null) }
+            val pending by vm.appUpdate.collectAsState()
+            val autoCheck by s.autoUpdateCheck.collectAsState(true)
             SettingsPage("About", nav, vm) {
-                item { ListItem(headlineContent = { Text("BlindRSS $version") }, supportingContent = { Text("Accessible RSS and podcast reader") }, modifier = Modifier.semantics(mergeDescendants = true) {}) }
-                item { WideButton("Open the user guide") { nav.navigate("help") } }
-                item { WideButton("Check for updates") { scope.launch { status = "Checking"; val latest = org.blindrss.android.feed.UpdateCheck.latestVersion()
-                    newer = latest?.takeIf { it != version }
-                    status = when { latest == null -> "Update check failed. Are you online?"; newer == null -> "Up to date."; else -> "Version $latest is available." } } } }
+                item { ListItem(headlineContent = { Text("BlindRSS $version") }, supportingContent = { Text(stringResource(R.string.about_tagline)) }, modifier = Modifier.semantics(mergeDescendants = true) {}) }
+                item { WideButton(stringResource(R.string.open_user_guide)) { nav.navigate("help") } }
+                item { SwitchRow(stringResource(R.string.auto_update_check), autoCheck) { v -> scope.launch { s.setFlag("auto_update_check", v) } } }
+                item { WideButton(stringResource(R.string.check_for_updates)) { status = "Checking"; vm.checkAppUpdate(manual = true) { status = it } } }
+                if (pending != null) item { UpdateInstallerPanel(pending!!) { vm.dismissAppUpdate() } }
                 item { var ytdl by remember { mutableStateOf("") }; LaunchedEffect(Unit) { if (org.blindrss.android.playback.Ytdl.supported()) vm.ytdlVersion { ytdl = it } }
                     if (org.blindrss.android.playback.Ytdl.supported()) {
                         ListItem(headlineContent = { Text("yt-dlp (nightly)") }, supportingContent = { Text(ytdl.ifEmpty { "Starts on first use" }) }, modifier = Modifier.semantics(mergeDescendants = true) {})
                         WideButton("Update yt-dlp") { status = "Updating yt-dlp"; vm.updateYtdl { status = it; vm.ytdlVersion { v -> ytdl = v } } }
                     } else Note("YouTube audio needs Android 11 or newer on a 64-bit device.") }
-                if (newer != null) item { WideButton("Download update") { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/serrebidev/BlindRSS-Android/releases/latest"))) } }
                 item { Status(status) }
             } }
     }

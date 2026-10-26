@@ -45,26 +45,61 @@ class Repository(val ctx: Context) {
     }
     suspend fun resolveFeedUrl(input: String): String {
         val normalized = FeedDiscovery.normalizeInput(input)
+        // Listing feeds (SoundCloud/Mixcloud pages, Google Groups, YouTube
+        // search pages) keep their page address: it is enumerated, not parsed.
+        if (MediaSites.listingKind(normalized) != null) return normalized
         val body = try { fetchText(normalized) } catch (_: Exception) { return normalized }
         if (looksLikeFeed(body)) return normalized
         val links = FeedDiscovery.findFeedLinks(body, normalized)
         return links.firstOrNull() ?: normalized
     }
+    // Enumerate a listing feed into a ParsedFeed. SoundCloud uses its public
+    // API (yt-dlp flat listing as fallback); Mixcloud its public API; Google
+    // Groups and YouTube listings are enumerated from the page / by yt-dlp,
+    // the same mechanisms as the desktop.
+    private suspend fun fetchListingFeed(url: String): ParsedFeed {
+        val kind = MediaSites.listingKind(url) ?: throw java.io.IOException("Not a listing feed: $url")
+        val (title, items) = when (kind) {
+            ListingKind.SOUNDCLOUD -> try { SoundCloudApi.fetchListing(url) }
+                catch (e: Exception) { ytdlpListing(url) ?: throw e }
+            ListingKind.MIXCLOUD -> MixcloudApi.fetchListing(url)
+            ListingKind.GOOGLE_GROUPS -> { val html = fetchText(url + if ("?" in url) "&hl=en" else "?hl=en")
+                if (GoogleGroups.permissionDenied(html)) throw java.io.IOException("This Google Group requires sign-in; only public groups can be read.")
+                GoogleGroups.parseGroupItems(html) }
+            ListingKind.YOUTUBE -> ytdlpListing(url) ?: throw java.io.IOException("Video listing feeds need yt-dlp support (ARM64 device, Android 10 or newer).")
+        }
+        if (items.isEmpty()) throw java.io.IOException("No items found at $url")
+        val now = System.currentTimeMillis()
+        return ParsedFeed(title.ifEmpty { url }, items.map { ParsedArticle(it.url, it.title, it.url, "", "", if (it.dateMs > 0) it.dateMs else now, it.author, null, null) })
+    }
+    private suspend fun ytdlpListing(url: String): Pair<String, List<ListingItem>>? {
+        if (!org.blindrss.android.playback.Ytdl.supported()) return null
+        val json = withContext(Dispatchers.IO) { org.blindrss.android.playback.Ytdl.flatJsonBlocking(ctx, url, 80) }
+        val items = VideoSearch.entriesToListingItems(json)
+        return if (items.isEmpty()) null else VideoSearch.flatTitle(json).ifEmpty { url } to items
+    }
     // With a provider signed in, the feed is subscribed on the server; Fever (no subscribe API) stays local.
     suspend fun addFeed(urlInput: String, category: String = "Uncategorized", syncAfter: Boolean = true): FeedEntity = withContext(Dispatchers.IO) {
         val url = resolveFeedUrl(urlInput)
         feeds.byUrl(url)?.let { return@withContext it }
-        buildProvider()?.let { p -> p.addFeed(url, category)?.let { rf ->
+        val listing = MediaSites.listingKind(url) != null
+        if (!listing) buildProvider()?.let { p -> p.addFeed(url, category)?.let { rf ->
             if (syncAfter) syncWith(p) else feeds.insert(FeedEntity(url = rf.url.ifEmpty { url }, title = rf.title.ifEmpty { url }, category = rf.category, remoteId = rf.remoteId))
             (feeds.byRemoteId(rf.remoteId) ?: feeds.byUrl(url))?.let { return@withContext it } } }
-        val xml = fetchText(url); val parsed = FeedParser.parse(xml, url)
+        val parsed = if (listing) fetchListingFeed(url) else FeedParser.parse(fetchText(url), url)
         val id = feeds.insert(FeedEntity(url = url, title = parsed.title, category = category))
         val feed = feeds.byId(id)!!
         saveArticles(feed, parsed.articles); feed
     }
     suspend fun refreshFeed(feed: FeedEntity): Int = withContext(Dispatchers.IO) {
-        try { val xml = fetchFeed(feed.url) ?: run { feeds.markSuccess(feed.id, System.currentTimeMillis(), ""); return@withContext 0 }
-            val parsed = FeedParser.parse(xml, feed.url)
+        try { val parsed = if (MediaSites.listingKind(feed.url) != null) fetchListingFeed(feed.url) else {
+                val xml = fetchFeed(feed.url) ?: run { feeds.markSuccess(feed.id, System.currentTimeMillis(), ""); return@withContext 0 }
+                val p = try { FeedParser.parse(xml, feed.url) } catch (_: Exception) { null }
+                // Not a feed after all: a listing page yt-dlp can enumerate
+                // (Vimeo/Dailymotion channel pages and the like).
+                if (p != null && (p.articles.isNotEmpty() || looksLikeFeed(xml))) p
+                else ytdlpListing(feed.url)?.let { (t, items) -> ParsedFeed(t, items.map { ParsedArticle(it.url, it.title, it.url, "", "", if (it.dateMs > 0) it.dateMs else System.currentTimeMillis(), it.author, null, null) }) } ?: (p ?: FeedParser.parse(xml, feed.url))
+            }
             val n = saveArticles(feed, parsed.articles)
             feeds.markSuccess(feed.id, System.currentTimeMillis(), parsed.title); n
         } catch (e: Exception) { feeds.markFailure(feed.id, e.message, System.currentTimeMillis()); throw e }
@@ -83,8 +118,8 @@ class Repository(val ctx: Context) {
         if (typed == cur.url) { feeds.update(cur.copy(title = title, category = category)); return@withContext }
         val url = resolveFeedUrl(typed)
         feeds.byUrl(url)?.takeIf { it.id != cur.id }?.let { throw java.io.IOException("Already subscribed at that address: ${it.title}") }
-        val body = fetchText(url); if (!looksLikeFeed(body)) throw java.io.IOException("No feed found at $url")
-        val parsed = FeedParser.parse(body, url)
+        val parsed = if (MediaSites.listingKind(url) != null) fetchListingFeed(url) else {
+            val body = fetchText(url); if (!looksLikeFeed(body)) throw java.io.IOException("No feed found at $url"); FeedParser.parse(body, url) }
         db.withTransaction { adoptArticles(cur.id, url, parsed.articles)
             feeds.update(cur.copy(url = url, title = title, category = category, lastError = null, lastSuccessAt = System.currentTimeMillis(), consecutiveFailures = 0)) }
         saveArticles(feeds.byId(cur.id)!!, parsed.articles)
@@ -166,9 +201,21 @@ class Repository(val ctx: Context) {
         if (YoutubeText.isVideoUrl(a.url) && org.blindrss.android.playback.Ytdl.supported()) {
             try { val yt = youtubeArticleHtml(a.url); if (FullText.plainLength(yt) >= 200) return yt } catch (_: Exception) {}
         }
-        // Forum threads (Reddit, Lemmy) read as one whole discussion.
+        // Forum threads (Reddit, Lemmy, Groups.io, Google Groups) read as one
+        // whole discussion.
         ForumText.targetFor(a.url, feeds.byId(a.feedId)?.url ?: "")?.let { t ->
-            try { val payloads = listOf(fetchJson(t.jsonUrl)) + (t.commentsUrl?.let { listOf(fetchJson(it)) } ?: emptyList())
+            try { val payloads = when (t.kind) {
+                    // Public HTML pages: follow Groups.io paging (a message
+                    // page first resolves to its topic), cap 5 pages.
+                    ForumText.Kind.GROUPS_IO -> { val pages = mutableListOf<String>()
+                        var next = GroupsIo.canonicalTopicUrl(t.jsonUrl)
+                        if (next == null) { val msgPage = fetchText(t.jsonUrl); next = GroupsIo.topicUrlFromMessagePage(msgPage, t.jsonUrl) }
+                        var hops = 0
+                        while (next != null && hops < 5) { val h = fetchText(next); pages += h; next = GroupsIo.parseTopicPage(h, next).nextUrl; hops++ }
+                        pages }
+                    ForumText.Kind.GOOGLE_GROUPS -> listOf(fetchText(t.jsonUrl + if ("?" in t.jsonUrl) "&hl=en" else "?hl=en"))
+                    else -> listOf(fetchJson(t.jsonUrl)) + (t.commentsUrl?.let { listOf(fetchJson(it)) } ?: emptyList())
+                }
                 val thread = ForumText.buildHtml(payloads, t); if (FullText.plainLength(thread) >= 200) return thread } catch (_: Exception) {}
         }
         val html = fetchArticleHtml(a.url)

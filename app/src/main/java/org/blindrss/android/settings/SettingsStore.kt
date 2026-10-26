@@ -65,6 +65,10 @@ class SettingsStore(private val ctx: Context) {
     // Up next queue (article ids) and the current position in it, restored at launch.
     suspend fun saveQueue(ids: List<String>, index: Int) { ctx.ds.edit { it[stringPreferencesKey("queue")] = ids.joinToString(","); it[intPreferencesKey("queue_index")] = index } }
     suspend fun savedQueue(): Pair<List<String>, Int> { val p = ctx.ds.data.first(); return (p[stringPreferencesKey("queue")] ?: "").split(",").filter { it.isNotBlank() } to (p[intPreferencesKey("queue_index")] ?: 0) }
+    // Self-update: check GitHub releases on start (throttled), toggleable.
+    val autoUpdateCheck = flag("auto_update_check", true)
+    val updateLastCheck: Flow<Long> = ctx.ds.data.map { it[longPreferencesKey("update_last_check")] ?: 0L }
+    suspend fun setUpdateLastCheck(v: Long) { ctx.ds.edit { it[longPreferencesKey("update_last_check")] = v } }
     val minifluxCursor: Flow<Long> = ctx.ds.data.map { it[longPreferencesKey("miniflux_cursor")] ?: 0L }
     suspend fun setMinifluxCursor(v: Long) { ctx.ds.edit { it[longPreferencesKey("miniflux_cursor")] = v } }
     suspend fun setSpeed(v: Float) { ctx.ds.edit { it[PLAYBACK_SPEED] = v } }

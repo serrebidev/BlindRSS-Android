@@ -18,11 +18,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import org.blindrss.android.R
 import org.blindrss.android.data.*
 import org.blindrss.android.feed.FullText
 import org.blindrss.android.settings.ProviderType
@@ -167,6 +169,7 @@ fun CategoryRow(cat: String, feeds: List<FeedEntity>, open: Boolean, nav: NavCon
 @Composable
 fun HomeScreen(nav: NavController, vm: AppViewModel) {
     val feeds by vm.feeds.collectAsState(); val unread by vm.unreadCount.collectAsState()
+    val pendingUpdate by vm.appUpdate.collectAsState()
     var menu by remember { mutableStateOf(false) }
     // Categories start collapsed; expanding is a row action.
     var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -174,8 +177,9 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
         IconButton(onClick = { vm.refreshAll() }, Modifier.semantics { contentDescription = "Refresh all feeds" }) { Icon(Icons.Filled.Refresh, null) }
         Box { IconButton(onClick = { menu = true }, Modifier.semantics { contentDescription = "More options menu" }) { Icon(Icons.Filled.MoreVert, null) }
             DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem({ Text("Add feed") }, { menu = false; nav.navigate("addfeed") })
-                DropdownMenuItem({ Text("Search") }, { menu = false; nav.navigate("search") })
+                DropdownMenuItem({ Text(stringResource(R.string.add_feed)) }, { menu = false; nav.navigate("addfeed") })
+                DropdownMenuItem({ Text(stringResource(R.string.search)) }, { menu = false; nav.navigate("search") })
+                DropdownMenuItem({ Text(stringResource(R.string.video_search_title)) }, { menu = false; nav.navigate("videosearch") })
                 DropdownMenuItem({ Text("Mark all read") }, { menu = false; vm.markAllRead() })
                 DropdownMenuItem({ Text("User guide") }, { menu = false; nav.navigate("help") })
                 DropdownMenuItem({ Text("Settings") }, { menu = false; nav.navigate("settings") })
@@ -183,8 +187,9 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
     }) }) { pad ->
         Column(Modifier.padding(pad)) {
             LiveAnnouncer(vm)
-            Text("$unread unread articles", Modifier.padding(16.dp).semantics { contentDescription = "$unread unread articles" })
-            val views = listOf(Triple("All Articles", "articles/all", Icons.AutoMirrored.Filled.List), Triple("Unread", "articles/unread", Icons.Filled.MarkEmailUnread), Triple("Read", "articles/read", Icons.Filled.MarkEmailRead), Triple("Favorites", "articles/favorites", Icons.Filled.Star), Triple("Categories and Labels", "categories", Icons.AutoMirrored.Filled.Label), Triple("Discover News Sources", "discover", Icons.Filled.Explore), Triple("Deleted Articles", "deleted", Icons.Filled.Delete), Triple("Feeds with Errors", "errors", Icons.Filled.Error), Triple("Smart Folders", "smart", Icons.Filled.Folder), Triple("Filter Rules", "filters", Icons.Filled.FilterList), Triple("Podcast Episodes", "articles/podcasts", Icons.Filled.Podcasts), Triple("Player, Up Next and Downloads", "player", Icons.Filled.PlayCircle))
+            pendingUpdate?.let { AppUpdateDialog(vm, it) }
+            Text(stringResource(R.string.unread_articles, unread), Modifier.padding(16.dp).semantics { contentDescription = "$unread unread articles" })
+            val views = listOf(Triple(stringResource(R.string.all_articles), "articles/all", Icons.AutoMirrored.Filled.List), Triple(stringResource(R.string.unread), "articles/unread", Icons.Filled.MarkEmailUnread), Triple(stringResource(R.string.read_articles), "articles/read", Icons.Filled.MarkEmailRead), Triple(stringResource(R.string.favorites), "articles/favorites", Icons.Filled.Star), Triple(stringResource(R.string.categories_and_labels), "categories", Icons.AutoMirrored.Filled.Label), Triple(stringResource(R.string.discover_sources), "discover", Icons.Filled.Explore), Triple(stringResource(R.string.video_search_title), "videosearch", Icons.Filled.OndemandVideo), Triple(stringResource(R.string.deleted_articles), "deleted", Icons.Filled.Delete), Triple(stringResource(R.string.feeds_with_errors), "errors", Icons.Filled.Error), Triple(stringResource(R.string.smart_folders), "smart", Icons.Filled.Folder), Triple(stringResource(R.string.filter_rules), "filters", Icons.Filled.FilterList), Triple(stringResource(R.string.podcast_episodes), "articles/podcasts", Icons.Filled.Podcasts), Triple(stringResource(R.string.player_title), "player", Icons.Filled.PlayCircle))
             LazyColumn {
                 items(views) { (label, route, icon) ->
                     ListItem(headlineContent = { Text(label) }, leadingContent = { Icon(icon, null) }, modifier = Modifier.clickable { nav.navigate(route) }.semantics { contentDescription = "Open $label"; role = Role.Button })
@@ -203,11 +208,12 @@ fun HomeScreen(nav: NavController, vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ArticlesScreen(nav: NavController, vm: AppViewModel, mode: String) {
+    val ctx = LocalContext.current
     val feeds by vm.feeds.collectAsState()
     val flow = remember(mode) { when (mode) { "unread" -> vm.repo.articles.observeUnread(); "read" -> vm.repo.articles.observeRead(); "favorites" -> vm.repo.articles.observeFavorites(); "podcasts" -> vm.repo.articles.observePodcasts(); else -> vm.repo.articles.observeAll() } }
     val articles by flow.collectAsState(emptyList())
     val title = when (mode) { "unread" -> "Unread"; "read" -> "Read"; "favorites" -> "Favorites"; "podcasts" -> "Podcast Episodes"; else -> "All Articles" }
-    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.markAllRead() }, Modifier.semantics { contentDescription = "Mark all read" }) { Icon(Icons.Filled.DoneAll, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(title, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.markAllRead() }, Modifier.semantics { contentDescription = "Mark all read" }) { Icon(Icons.Filled.DoneAll, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles. Add a feed or refresh.") }
     }
 }
@@ -215,10 +221,11 @@ fun ArticlesScreen(nav: NavController, vm: AppViewModel, mode: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeedArticlesScreen(nav: NavController, vm: AppViewModel, feedId: Long) {
+    val ctx = LocalContext.current
     val feeds by vm.feeds.collectAsState()
     val articles by remember(feedId) { vm.repo.articles.observeByFeed(feedId) }.collectAsState(emptyList())
     val feed = feeds.firstOrNull { it.id == feedId }
-    Scaffold(topBar = { TopAppBar(title = { Text(feed?.title ?: "Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(feed?.title ?: "Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles in this feed yet. Pull refresh from home.") }
     }
 }
@@ -231,10 +238,10 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
     var fullText by remember(articleId) { mutableStateOf<String?>(null) }
     var loadingFull by remember(articleId) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    Scaffold(topBar = { TopAppBar(title = { Text("Article", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = {
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.article), Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = {
         article?.let { a ->
-            IconButton(onClick = { vm.readAloud(a) }, Modifier.semantics { contentDescription = "Read aloud" }) { Icon(Icons.Filled.RecordVoiceOver, null) }
-            IconButton(onClick = { shareText(ctx, a.title, a.url) }, Modifier.semantics { contentDescription = "Share article" }) { Icon(Icons.Filled.Share, null) }
+            IconButton(onClick = { vm.readAloud(a) }, Modifier.semantics { contentDescription = ctx.getString(R.string.read_aloud) }) { Icon(Icons.Filled.RecordVoiceOver, null) }
+            IconButton(onClick = { shareText(ctx, a.title, a.url) }, Modifier.semantics { contentDescription = ctx.getString(R.string.share_article) }) { Icon(Icons.Filled.Share, null) }
             if (vm.canSaveToIntegrations.collectAsState().value && a.remoteId != null) IconButton(onClick = { vm.saveToIntegrations(a) }, Modifier.semantics { contentDescription = "Save to integrations" }) { Icon(Icons.Filled.BookmarkAdd, null) }
             IconButton(onClick = { vm.openInBrowser(ctx, a) }, Modifier.semantics { contentDescription = "Open original article externally" }) { Icon(Icons.Filled.OpenInBrowser, null) }
         }
@@ -247,10 +254,16 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
                     if (vm.repo.settings.articleOpenMode.first() == "FULL_TEXT" && fullText == null) { loadingFull = true; vm.loadFullText(a) { t -> if (t != null && stripHtml(t).length > stripHtml(a.content.ifBlank { a.description }).length) fullText = t; loadingFull = false } } }
                 val bodyHtml = fullText ?: a.content.ifBlank { a.description }
                 val blocks = remember(bodyHtml) { org.blindrss.android.feed.FullText.blocks(bodyHtml) }
-                LazyColumn {
-                    item { Text(a.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() }); Text(DateFormat.getDateTimeInstance().format(Date(a.date)), style = MaterialTheme.typography.labelMedium); if (a.author.isNotBlank()) Text("By ${a.author}", style = MaterialTheme.typography.labelMedium) }
-                    item { Row { Button(onClick = { vm.toggleFavorite(a) }, Modifier.semantics { contentDescription = if (a.isFavorite) "Remove favorite" else "Add favorite" }) { Text(if (a.isFavorite) "Unfavorite" else "Favorite") }; Spacer(Modifier.width(8.dp)); Button(onClick = { vm.setRead(a, !a.isRead) }, Modifier.semantics { contentDescription = if (a.isRead) "Mark unread" else "Mark read" }) { Text(if (a.isRead) "Mark unread" else "Mark read") }; if (a.mediaUrl != null) { Spacer(Modifier.width(8.dp)); Button(onClick = { vm.play(a); nav.navigate("player") }, Modifier.semantics { contentDescription = "Play media" }) { Text("Play") } } } }
-                    item { Button(onClick = { loadingFull = true; vm.loadFullText(a) { t -> if (t != null) fullText = t; loadingFull = false } }, Modifier.semantics { contentDescription = "Fetch full article text" }) { Text(if (loadingFull) "Fetching full text..." else if (fullText != null) "Full text shown. Fetch again" else "Fetch full text") } }
+                // Reading position, the desktop status bar's "Line X of Y" as
+                // an Android readout: the three fixed rows (title, buttons,
+                // fetch) precede the paragraph blocks in the list.
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val firstVisible by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+                val readingPos = (firstVisible - 2).coerceIn(1, maxOf(1, blocks.size))
+                LazyColumn(state = listState) {
+                    item { Text(a.title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() }); Text(DateFormat.getDateTimeInstance().format(Date(a.date)), style = MaterialTheme.typography.labelMedium); if (a.author.isNotBlank()) Text("By ${a.author}", style = MaterialTheme.typography.labelMedium); if (blocks.size > 1) Text(stringResource(R.string.reading_position, readingPos, blocks.size), style = MaterialTheme.typography.labelMedium, modifier = Modifier.semantics { contentDescription = "Reading position: paragraph $readingPos of ${blocks.size}" }) }
+                    item { Row { Button(onClick = { vm.toggleFavorite(a) }, Modifier.semantics { contentDescription = if (a.isFavorite) "Remove favorite" else "Add favorite" }) { Text(if (a.isFavorite) stringResource(R.string.unfavorite) else stringResource(R.string.favorite)) }; Spacer(Modifier.width(8.dp)); Button(onClick = { vm.setRead(a, !a.isRead) }, Modifier.semantics { contentDescription = if (a.isRead) ctx.getString(R.string.mark_unread) else ctx.getString(R.string.mark_read) }) { Text(if (a.isRead) stringResource(R.string.mark_unread) else stringResource(R.string.mark_read)) }; if (a.mediaUrl != null) { Spacer(Modifier.width(8.dp)); Button(onClick = { vm.play(a); nav.navigate("player") }, Modifier.semantics { contentDescription = "Play media" }) { Text(stringResource(R.string.play)) } } } }
+                    item { Button(onClick = { loadingFull = true; vm.loadFullText(a) { t -> if (t != null) fullText = t; loadingFull = false } }, Modifier.semantics { contentDescription = "Fetch full article text" }) { Text(if (loadingFull) "Fetching full text..." else if (fullText != null) "Full text shown. Fetch again" else stringResource(R.string.fetch_full_text)) } }
                     // Each paragraph is its own TalkBack stop with its real text.
                     // Do NOT set contentDescription here: it would replace the
                     // paragraph text TalkBack reads (the old "Article body" bug).
@@ -271,12 +284,13 @@ fun ReaderScreen(nav: NavController, vm: AppViewModel, articleId: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     var q by remember { mutableStateOf("") }
     val feeds by vm.feeds.collectAsState()
     val results by remember(q) { if (q.isBlank()) kotlinx.coroutines.flow.flowOf(emptyList()) else vm.repo.articles.search(q) }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Search", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.search), Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) {
-            OutlinedTextField(q, { q = it }, label = { Text("Search articles") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search articles edit field" }, singleLine = true)
+            OutlinedTextField(q, { q = it }, label = { Text(stringResource(R.string.search_articles)) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search articles edit field" }, singleLine = true)
             ArticleList(results, feeds, nav, vm, if (q.isBlank()) "Type to search titles and content." else "No results for $q")
         }
     }
@@ -305,8 +319,9 @@ fun ActionListItem(title: String, supporting: String, description: String, onOpe
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeletedScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     val deleted by remember { vm.repo.misc.observeDeleted() }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Deleted Articles", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.purgeAllDeleted() }, Modifier.semantics { contentDescription = "Purge all deleted articles" }) { Icon(Icons.Filled.DeleteForever, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Deleted Articles", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { IconButton(onClick = { vm.purgeAllDeleted() }, Modifier.semantics { contentDescription = "Purge all deleted articles" }) { Icon(Icons.Filled.DeleteForever, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (deleted.isEmpty()) Text("No deleted articles.", Modifier.padding(16.dp))
             LazyColumn { items(deleted, key = { it.id }) { d ->
@@ -320,8 +335,9 @@ fun DeletedScreen(nav: NavController, vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ErrorsScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     val errs by vm.errorFeeds.collectAsState()
-    Scaffold(topBar = { TopAppBar(title = { Text("Feeds with Errors", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Feeds with Errors", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (errs.isEmpty()) Text("No feeds with errors.", Modifier.padding(16.dp))
             LazyColumn { items(errs, key = { it.id }) { f ->
@@ -335,12 +351,13 @@ fun ErrorsScreen(nav: NavController, vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     var name by remember { mutableStateOf("") }; var value by remember { mutableStateOf("") }; var field by remember { mutableStateOf("title") }
     val folders by remember { vm.repo.misc.observeSmart() }.collectAsState(emptyList())
     val feeds by vm.feeds.collectAsState()
     var selected by remember { mutableStateOf<SmartFolderEntity?>(null) }
     val all by remember { vm.repo.articles.observeAll() }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Smart Folders", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Smart Folders", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) { LiveAnnouncer(vm)
             OutlinedTextField(name, { name = it }, label = { Text("Folder name") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Smart folder name" })
             OutlinedTextField(value, { value = it }, label = { Text("Contains text in $field") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Smart folder search text" })
@@ -356,9 +373,10 @@ fun SmartFoldersScreen(nav: NavController, vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FiltersScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     var name by remember { mutableStateOf("") }; var value by remember { mutableStateOf("") }; var action by remember { mutableStateOf("mark_read") }; var target by remember { mutableStateOf("") }
     val rules by remember { vm.repo.misc.observeRules() }.collectAsState(emptyList())
-    Scaffold(topBar = { TopAppBar(title = { Text("Filter Rules", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Filter Rules", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) { LiveAnnouncer(vm)
             Text("Rules run on new articles as they arrive.", style = MaterialTheme.typography.bodyMedium)
             OutlinedTextField(name, { name = it }, label = { Text("Rule name") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Rule name" })
@@ -382,16 +400,16 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
     }
     val scope = rememberCoroutineScope()
     var exportMsg by remember { mutableStateOf("") }
-    Scaffold(topBar = { TopAppBar(title = { Text("Add Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.add_feed), Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { LiveAnnouncer(vm)
             Text("Paste a feed URL, website URL, YouTube channel or playlist, Reddit community, Lemmy or PieFed community, Mastodon or Bluesky profile, or GitHub repository URL. Discovery finds the feed automatically.", style = MaterialTheme.typography.bodyMedium)
-            OutlinedTextField(url, { url = it }, label = { Text("Feed or website URL") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Feed or website URL edit field" }, singleLine = true)
-            OutlinedTextField(cat, { cat = it }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Category edit field" }, singleLine = true)
-            Button(onClick = { vm.addFeed(url, cat); nav.popBackStack() }, Modifier.fillMaxWidth().semantics { contentDescription = "Subscribe to feed" }) { Text("Subscribe") }
+            OutlinedTextField(url, { url = it }, label = { Text(stringResource(R.string.feed_url_label)) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Feed or website URL edit field" }, singleLine = true)
+            OutlinedTextField(cat, { cat = it }, label = { Text(stringResource(R.string.category)) }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Category edit field" }, singleLine = true)
+            Button(onClick = { vm.addFeed(url, cat); nav.popBackStack() }, Modifier.fillMaxWidth().semantics { contentDescription = "Subscribe to feed" }) { Text(stringResource(R.string.subscribe)) }
             HorizontalDivider()
             Text("OPML", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
-            Button(onClick = { opmlLauncher.launch("text/*") }, Modifier.fillMaxWidth().semantics { contentDescription = "Import OPML file" }) { Text("Import OPML") }
-            Button(onClick = { scope.launch { val opml = vm.repo.exportOpml(); val f = File(ctx.getExternalFilesDir(null), "blindrss-export.opml"); f.writeText(opml); exportMsg = "Exported to ${f.absolutePath}"; shareText(ctx, "BlindRSS OPML", opml.take(500)) } }, Modifier.fillMaxWidth().semantics { contentDescription = "Export OPML file" }) { Text("Export OPML") }
+            Button(onClick = { opmlLauncher.launch("text/*") }, Modifier.fillMaxWidth().semantics { contentDescription = "Import OPML file" }) { Text(stringResource(R.string.import_opml)) }
+            Button(onClick = { scope.launch { val opml = vm.repo.exportOpml(); val f = File(ctx.getExternalFilesDir(null), "blindrss-export.opml"); f.writeText(opml); exportMsg = "Exported to ${f.absolutePath}"; shareText(ctx, "BlindRSS OPML", opml.take(500)) } }, Modifier.fillMaxWidth().semantics { contentDescription = "Export OPML file" }) { Text(stringResource(R.string.export_opml)) }
             if (exportMsg.isNotEmpty()) Text(exportMsg)
             HorizontalDivider()
             Text("Search podcast directories", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium)
@@ -407,6 +425,7 @@ fun AddFeedScreen(nav: NavController, vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategoriesScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     val feeds by vm.feeds.collectAsState()
     val all by remember { vm.repo.articles.observeAll() }.collectAsState(emptyList())
     val feedCat = feeds.associate { it.id to it.category }
@@ -414,7 +433,7 @@ fun CategoriesScreen(nav: NavController, vm: AppViewModel) {
         for (a in all) { val folder = a.folder ?: feedCat[a.feedId] ?: "Uncategorized"; counts[folder] = (counts[folder] ?: 0) + 1
             for (l in a.labels.split(",").map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("__") }) counts["Label: $l"] = (counts["Label: $l"] ?: 0) + 1 }
         counts.entries.sortedBy { it.key } }
-    Scaffold(topBar = { TopAppBar(title = { Text("Categories and Labels", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Categories and Labels", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm)
             if (names.isEmpty()) Text("No articles yet.", Modifier.padding(16.dp))
             LazyColumn { items(names) { (name, count) ->
@@ -427,11 +446,12 @@ fun CategoriesScreen(nav: NavController, vm: AppViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategoryArticlesScreen(nav: NavController, vm: AppViewModel, name: String) {
+    val ctx = LocalContext.current
     val feeds by vm.feeds.collectAsState()
     val all by remember { vm.repo.articles.observeAll() }.collectAsState(emptyList())
     val feedCat = feeds.associate { it.id to it.category }
     val matched = remember(all, name) { all.filter { a -> if (name.startsWith("Label: ")) name.removePrefix("Label: ") in a.labels.split(",").map { it.trim() } else (a.folder ?: feedCat[a.feedId] ?: "Uncategorized") == name } }
-    Scaffold(topBar = { TopAppBar(title = { Text(name, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text(name, Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(matched, feeds, nav, vm, "No articles in $name") }
     }
 }
@@ -468,6 +488,7 @@ fun DiscoverRow(s: org.blindrss.android.discovery.DiscoveredSource, selected: Bo
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoverScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Canada") }
     var country by remember { mutableStateOf("CA") }; var language by remember { mutableStateOf("en") }
@@ -477,7 +498,7 @@ fun DiscoverScreen(nav: NavController, vm: AppViewModel) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { country = vm.repo.settings.discoveryCountry.first(); language = vm.repo.settings.discoveryLanguage.first(); city = vm.repo.settings.discoveryCity.first(); region = vm.repo.settings.discoveryRegion.first(); vm.loadCatalogue(); vm.browseDiscover(category) }
     val categories = listOf("General news", "World", "Canada", "Local news", "Politics", "Business", "Technology", "Science", "Health", "Entertainment", "Sports", "Gaming")
-    Scaffold(topBar = { TopAppBar(title = { Text("Discover News Sources", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = "Back" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
+    Scaffold(topBar = { TopAppBar(title = { Text("Discover News Sources", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             LiveAnnouncer(vm)
             OutlinedTextField(query, { query = it }, label = { Text("Publisher name, topic, or website URL") }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search publishers by name, topic, or website URL" }, singleLine = true)

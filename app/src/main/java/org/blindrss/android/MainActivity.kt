@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
         handleOAuth(intent)
         if (savedInstanceState == null) {
             appVm.refreshOnLaunch()
+            appVm.checkAppUpdate()
             if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
                 requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         }
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
                         composable("reader/{id}", listOf(navArgument("id") { type = NavType.StringType })) { ReaderScreen(nav, vm, it.arguments?.getString("id") ?: "") }
                         composable("feed/edit/{id}", listOf(navArgument("id") { type = NavType.LongType })) { EditFeedScreen(nav, vm, it.arguments?.getLong("id") ?: 0) }
                         composable("search") { SearchScreen(nav, vm) }
+                        composable("videosearch") { VideoSearchScreen(nav, vm) }
                         composable("deleted") { DeletedScreen(nav, vm) }
                         composable("errors") { ErrorsScreen(nav, vm) }
                         composable("smart") { SmartFoldersScreen(nav, vm) }

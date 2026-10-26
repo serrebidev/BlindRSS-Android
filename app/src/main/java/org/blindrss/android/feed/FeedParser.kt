@@ -138,6 +138,8 @@ object FeedDiscovery {
         // Any host: Mastodon-compatible servers (incl. PieFed/Fediverse mirrors) share the /@user and /tags/ shapes.
         Regex("^(https?://[^/]+/@[\\w.@-]+)/?$").find(t)?.let { if (!t.endsWith(".rss")) return "${it.groupValues[1]}.rss" }
         Regex("^(https?://[^/]+/tags/[\\w-]+)/?$").find(t)?.let { return "${it.groupValues[1]}.rss" }
+        // Groups.io group pages subscribe through the group's native RSS.
+        GroupsIo.groupFeedUrl(t)?.let { return it }
         if (!t.startsWith("http")) return "https://$t"
         return t
     }
