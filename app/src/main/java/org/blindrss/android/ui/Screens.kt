@@ -124,7 +124,6 @@ fun FeedRow(f: FeedEntity, cat: String, nav: NavController, vm: AppViewModel) {
                     contentDescription = "Feed ${f.title}, category $cat.${if (f.muted) " Notifications muted." else ""} ${f.lastError?.let { "Error: $it. " } ?: ""}Double tap to open. Double tap and hold for actions."
                     role = Role.Button
                     customActions = listOf(
-                        CustomAccessibilityAction("Refresh feed") { vm.refreshFeed(f); true },
                         CustomAccessibilityAction("Edit feed") { nav.navigate("feed/edit/${f.id}"); true },
                         CustomAccessibilityAction(if (f.muted) "Unmute notifications" else "Mute notifications") { vm.toggleMute(f); true },
                         CustomAccessibilityAction("Mark feed read") { vm.markFeedRead(f); true },
@@ -132,7 +131,6 @@ fun FeedRow(f: FeedEntity, cat: String, nav: NavController, vm: AppViewModel) {
                     )
                 })
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem({ Text("Refresh feed") }, { menu = false; vm.refreshFeed(f) })
             DropdownMenuItem({ Text("Edit feed") }, { menu = false; nav.navigate("feed/edit/${f.id}") })
             DropdownMenuItem({ Text(if (f.muted) "Unmute notifications" else "Mute notifications") }, { menu = false; vm.toggleMute(f) })
             DropdownMenuItem({ Text("Mark feed read") }, { menu = false; vm.markFeedRead(f) })
@@ -225,8 +223,9 @@ fun FeedArticlesScreen(nav: NavController, vm: AppViewModel, feedId: Long) {
     val feeds by vm.feeds.collectAsState()
     val articles by remember(feedId) { vm.repo.articles.observeByFeed(feedId) }.collectAsState(emptyList())
     val feed = feeds.firstOrNull { it.id == feedId }
-    Scaffold(topBar = { TopAppBar(title = { Text(feed?.title ?: "Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
-        Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles in this feed yet. Pull refresh from home.") }
+    // Per-feed refresh lives here, one deliberate step in from Home, so it is never hit by accident while flicking through Home rows.
+    Scaffold(topBar = { TopAppBar(title = { Text(feed?.title ?: "Feed", Modifier.semantics { heading() }) }, navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }, actions = { feed?.let { f -> IconButton(onClick = { vm.refreshFeed(f) }, Modifier.semantics { contentDescription = "Refresh feed" }) { Icon(Icons.Filled.Refresh, null) } } }) }) { pad ->
+        Column(Modifier.padding(pad)) { LiveAnnouncer(vm); ArticleList(articles, feeds, nav, vm, "No articles in this feed yet. Use Refresh feed at the top to check for new articles.") }
     }
 }
 

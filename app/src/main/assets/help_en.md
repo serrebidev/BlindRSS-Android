@@ -9,8 +9,8 @@ no internet connection.
 ## Getting around
 
 Every row is one TalkBack stop. Double tap opens it. Double tap and hold, or
-swipe up or down with TalkBack, shows its actions: feeds can be refreshed,
-edited, muted, marked read, or deleted; articles can be marked read, made a
+swipe up or down with TalkBack, shows its actions: feeds can be edited,
+muted, marked read, or deleted; articles can be marked read, made a
 favorite, played, downloaded, shared, read aloud, or deleted. Screen titles
 are headings, so heading navigation jumps between sections.
 
@@ -82,7 +82,11 @@ Feeds with Errors lists feeds that stopped updating, with retry and edit
 actions. Edit feed changes a feed's title, moves it to another category, or
 changes a local feed's address; the new address is checked first, and your
 articles keep their read, favorite, download, and resume state. With a
-provider signed in, renames and moves happen on the server too.
+provider signed in, renames and moves happen on the server too. Refreshing a
+single feed lives on the feed's own page: open the feed and use the Refresh
+feed button at the top. It is deliberately not on the Home feed rows, so it
+cannot be hit by accident while flicking through Home; the Home top bar
+still refreshes every feed at once.
 
 ## About this app
 
