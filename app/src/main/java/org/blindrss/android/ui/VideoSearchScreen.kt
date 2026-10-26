@@ -43,7 +43,7 @@ fun VideoSearchScreen(nav: androidx.navigation.NavController, vm: AppViewModel) 
         navigationIcon = { IconButton(onClick = { nav.popBackStack() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) {
             OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.video_search_query)) }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Video search edit field" })
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = ctx.getString(R.string.video_search_edit_field) })
             LazyRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { FilterChip(siteId == "all", { siteId = "all" }, { Text(stringResource(R.string.video_search_all_sites)) }) }
                 items(VideoSearch.SITES) { s -> FilterChip(siteId == s.id, { siteId = s.id }, { Text(s.label) }) }

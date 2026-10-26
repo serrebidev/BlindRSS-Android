@@ -88,6 +88,40 @@ feed button at the top. It is deliberately not on the Home feed rows, so it
 cannot be hit by accident while flicking through Home; the Home top bar
 still refreshes every feed at once.
 
+## New in this version
+
+Add Feed can import a YouTube Takeout ZIP: subscriptions, playlists and
+channels from your watch history become feeds. Add Feed's directory search
+now covers Apple Podcasts, gPodder, Feedsearch, fyyd, Podverse, Feedly,
+NewsBlur, Reddit, Lemmy, Mastodon, Bluesky, PieFed, Groups.io, Feedspot,
+SoundCloud, Mixcloud, Google News and Bing News.
+
+Sign in to YouTube from Settings, YouTube account: the app shows a code to
+enter at google.com/device, exactly like a TV. The YouTube home view then
+shows recommendations and your subscriptions shelf, ready to play or
+subscribe. Signing in is optional; nothing about it is needed for feeds.
+
+Filter rules run as a pipeline: a rule can mark read, favorite, delete,
+move, label and silence notifications in one pass, and a rule can stop
+later rules from running. Categories can be renamed and deleted from the
+Categories view. Settings, Sync, gains article retention by age, a delete
+behaviour choice (Deleted Articles, permanent, or move to a category) with
+an optional confirmation, and restore-last-view under Settings, Reading.
+
+Reader presentation switches (list bullets, quote markers, link targets,
+image descriptions) live in Settings, Reading, with a search-scope switch
+beside them. The Home menu opens articles and media by pasted URL. A
+podcast feed whose older episodes have vanished can recover them from the
+Wayback Machine with the history button on the feed's page. Edit Feed
+shows the feed's own description and can reset a custom title back to the
+feed's title.
+
+Member-only Groups.io archives open with your own Groups.io API key
+(Settings, Sync, Groups.io; stored encrypted). Sign-in-only Google Groups
+work after Settings, Sync, Sign in to Google Groups, or by importing a
+cookies.txt file there. The player can now cast to Chromecast with
+Google's default receiver, alongside DLNA.
+
 ## About this app
 
 BlindRSS is free and open source under the MIT license. Settings, About,

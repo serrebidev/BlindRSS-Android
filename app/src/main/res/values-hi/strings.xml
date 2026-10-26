@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Generated from the desktop BlindRSS hi gettext catalog; do not edit by hand. -->
 <resources>
     <string name="settings">सेटिंग्स</string>
     <string name="all_articles">सभी लेख</string>
@@ -21,4 +20,13 @@
     <string name="export_opml">OPML निर्यात करें</string>
     <string name="video_search_all_sites">सभी साइटें</string>
     <string name="check_for_updates">अपडेट के लिए जांचें</string>
+    <string name="cancel">रद्द करें</string>
+    <string name="title">शीर्षक</string>
+    <string name="author">लेखक</string>
+    <string name="date">तारीख़</string>
+    <string name="article_text">लेख का पाठ</string>
+    <string name="groups_io_api_key">Groups.io API कुंजी</string>
+    <string name="notifications">सूचनाएं</string>
+    <string name="downloads">डाउनलोड</string>
+    <string name="equalizer">इक्वलाइज़र</string>
 </resources>

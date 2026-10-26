@@ -102,6 +102,70 @@ Round 2 re-judged every v0.10.0 skip. Library research first (Brandon's rule: se
 
 Per-feed "Refresh feed" removed from Home's feed rows: it was the first TalkBack custom action and the first long-press menu item on every feed row in Home's (persistently) expanded categories, so it sat on Home's flick path and was easy to trigger by accident. Refreshing one feed now lives one deliberate step in, on the feed's own page (`articles/feed/{id}` top bar, "Refresh feed" button with TalkBack label). Home keeps the single global "Refresh all feeds" top-bar action (and its refresh chime); the Feeds with Errors screen keeps its Retry action, since retrying is that screen's purpose. Feed-row content descriptions, remaining actions (Edit, Mute/Unmute, Mark feed read, Delete) and Home's focus order are otherwise unchanged; the bundled user guide was updated to match.
 
-## Known gaps
+## Known gaps (superseded by the v0.13.0 research round below)
 
 Chromecast/AirPlay casting not implemented (DLNA/UPnP covers local-network casting without Play Services); podcast archive and YouTube-account providers still desktop-only (need yt-dlp/OAuth scraping); Feedly/NewsBlur directory search not included (Apple/gPodder only); live server logins were not re-tested after this pass.
+
+## v0.13.0 research round (Brandon's methodology: web 10+ read per area; GitHub, Codeberg, GitLab each sorted by recent and by stars, 10 results each)
+
+### A. NewPipeExtractor re-examination
+Web: NewPipe docs/site confirm a Java extractor library for YouTube, SoundCloud, media.ccc.de, PeerTube, Bandcamp — 5 services, no Mixcloud, no account/recommendations features, no listing enumeration.
+GitHub stars: TeamNewPipe/NewPipeExtractor ★2,028, pushed 2026-10-23, GPL-3.0 — active. TeamNewPipe/NewPipe ★30k+ (the app; GPL-3.0). MetrolistGroup/Metrolist ★13,800, pushed 2026-10-25, GPL-3.0 (Innertube YouTube-Music client; music only). KmpNewPipe/NewPipeExtractor-KMP — AGPL-3.0 (stricter). GitHub recent: NewPipeExtractor dev branch active; extractor forks mostly stale single-purpose mirrors.
+Codeberg recent/stars: no NewPipeExtractor port or alternative extractor of note (searches return unrelated media tools). GitLab recent/stars: same — no maintained Java/Kotlin extractor for these services; the Schabi namespace mirrors live on GitHub.
+Verdict: REJECTED again, with fresh evidence. The app itself is MIT (see About); adopting a GPL-3.0 (or AGPL) library would force relicensing the whole app, and the library still lacks Mixcloud and the account/recommendation surface the SmartTube audit (section E2) covers better. The in-app Innertube/yt-dlp stack stays.
+
+### B. Groups.io member-only archives
+Web: Groups.io official API lives at api.groups.io/v1; authentication is a Bearer API key the user creates in their own Groups.io account settings (full account power) or a login-cookie session. Endpoints gettopics/getmessages return member-only content for groups the account belongs to.
+GitHub stars: lake54/groupsio-api-java ★2, pushed 2024-10-03, GPL-3.0 — a thin client; not needed, the endpoints are plain GETs. Other hits are one-off scripts. GitHub recent: nothing maintained. Codeberg/GitLab: no Groups.io API clients found in either sort.
+Verdict: PORTED. The unblock is an app-side API-key setting: Settings > Sync > Groups.io stores the key encrypted; thread reading for groups.io topic URLs goes through the API with the Bearer header and falls back to the public HTML path without a key.
+
+### C. Sign-in-only Google Groups
+Web: Google publishes no content API for consumer Google Groups (the "Google Groups API" is the Workspace Admin Directory API — user/group administration, no message reading). Other Android apps' route is WebView sign-in + CookieManager cookie reuse.
+GitHub/Codeberg/GitLab (recent + stars): no library offers authenticated consumer Groups reading; hits are Workspace admin SDKs and scrapers that reuse exported cookies — confirming the cookie route is the only one.
+Verdict: PORTED via the cookie route. Settings > Sync > Sign in to Google Groups opens a WebView; Save copies the session cookies into the app's existing encrypted cookie store, and a cookies.txt import accepts the same session exported from a desktop browser. Groups then read through the normal authenticated fetch identity.
+
+### D. Translation tooling
+Web: android2po (PyPI) bridges gettext .po and Android strings.xml in both directions; Crowdin/Lokalise offer Android+gettext sync as hosted SaaS; the poeditor Gradle plugin syncs a hosted project. None is needed: the desktop catalogs are on disk.
+GitHub stars: mikeee/android2po and successors exist but add a Python dependency chain for a job a small script does. Codeberg/GitLab: no Android gettext tooling of note.
+Verdict: in-repo pipeline. English strings.xml is the source of truth (grown 58 to 187 strings this round: settings detail sections, player screens, provider setup, discover, new screens and the ListReading speech templates are extracted; the covered call patterns are the ones tools/ + the extraction patterns handle). tools/gen_locales.py regenerates all 15 values-<lang> files by msgid-matching the desktop blindrss.po catalogs; Android-only strings stay English until the desktop catalogs gain them (same documented limit as iOS). Roughly 590 capitalized literals existed across the UI files; the pure-literal call sites on the named surfaces are extracted, remaining interpolated/dynamic strings in Screens.kt are future extraction work, now tractable with the committed pipeline.
+
+### E. Other "no Android option" claims re-hunted
+E1. Chromecast. Web: Google's Cast developer docs state the Default Media Receiver "doesn't require registration" — senders initialize with DEFAULT_MEDIA_RECEIVER_APP_ID (CC1AD845); the Cast Companion Library and Google's CastVideos sample use it directly. The old claim "needs the owner's Cast credentials" is REFUTED (it confuses custom receivers with the default one). GitHub stars/recent: googlecast samples maintained by Google. Verdict: PORTED — play-services-cast-framework, a TalkBack-labelled route button in the player, and a session listener that hands the current media to the receiver. DLNA stays for non-Google renderers.
+E2. YouTube account / recommendations (SmartTube audit, Brandon's pointer). Source audit of yuliskov/SmartTube and yuliskov/MediaServiceCore (cloned and read, 2026-10-26): BOTH ARE MIT — no license obstacle. Auth (MediaServiceCore youtubeapi/auth + googleapi/oauth2): Google's OAuth2 device-code flow for limited-input devices. The client_id/client_secret are NOT shipped constants and NOT Brandon's: AppServiceCore scrapes them at runtime from the official YouTube TV client's own base.js (ClientData regexes, first occurrence = the TV client), the same constants the TV app itself uses. Device code: POST oauth2.googleapis.com/device/code {client_id, scope}; token poll: POST oauth2.googleapis.com/token {client_id, client_secret, device_code, grant_type=http://oauth.net/grant_type/device/1.0}; refresh via grant_type=refresh_token. Scope: "https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube-paid-content". With the token, Innertube browse (Authorization: Bearer) serves FEwhat_to_watch (recommendations) and FEsubscriptions. Verdict: SOUND — PORTED as an independent implementation of the same documented protocol (feed/YouTubeAccount.kt; no code copied). Settings > YouTube account runs sign-in; the YouTube home view lists recommendations and the subscriptions shelf with Play/Download/Subscribe. This REMOVES the "needs Brandon's Google Cloud OAuth client" blocker: no project of his is involved.
+E3. Podcast archive recovery. Web: the Wayback CDX API is keyless and documented by the Internet Archive. Verdict: PORTED — the feed page's history button lists snapshot URLs (oldest first) and re-imports episodes from archived feed copies.
+E4. YouTube Takeout import (found MISSING during verification, though round 1 implied coverage). Takeout ZIPs carry subscriptions.csv, playlists.csv and watch-history in HTML and JSON exports — all parseable offline with the stdlib ZIP/CSV/JSON readers. Verdict: PORTED (Add Feed > Import YouTube Takeout).
+
+## Three-way matrix — desktop v2.5.1 (spec) vs iOS v0.1.12 vs Android v0.13.0
+
+Verified against each app's code/AUDIT this round. "Yes" = shipped.
+
+- Feeds/OPML import-export: desktop Yes, iOS Yes, Android Yes.
+- YouTube Takeout ZIP import (incl. watch-history channels): desktop Yes, iOS Yes (0.1.12+), Android Yes (new; was absent).
+- Directory search in Add Feed: desktop 13+, iOS 13 grouped, Android 18 sources (Apple, gPodder, Feedsearch, fyyd, Podverse, Feedly, NewsBlur, Reddit, Lemmy, Mastodon, Bluesky, PieFed, Groups.io, Feedspot, SoundCloud, Mixcloud, Google News, Bing News) — Feedly/NewsBlur/Reddit/Lemmy/fyyd/Podverse/Groups.io/Feedspot new this round.
+- Social URL to feed resolution: Yes / Yes / Yes.
+- Filter rules ordered pipeline with label + stop: Yes / Yes / Yes (new; was single-action).
+- Persistent searches (smart folders): Yes / Yes / Yes (already present).
+- Categories browse + rename/delete: Yes / Yes / Yes (rename/delete new).
+- Article retention by age + delete-behaviour settings: Yes / Yes / Yes (new).
+- Per-feed notification mute: Yes / Yes / Yes (already present).
+- Feed description display + Reset Title: Yes / Yes / Yes (new; needed schema v4 feed description/siteTitle).
+- Reader presentation toggles (both reader paths): Yes / Yes / Yes (new; blocksStyled).
+- Search scope setting: Yes / Yes / Yes (new).
+- Restore last selection/view: Yes / Yes / Yes (new).
+- Open Article / Open Media by URL: Yes / Yes / Yes (new).
+- Site cookies management UI: Yes / Yes / Yes (plus new cookies.txt import + Google sign-in capture).
+- Groups.io member-only via API key: Yes (account) / API path researched both, iOS pending its round / Yes (new).
+- Google Groups sign-in-only: cookie route / cookie route / Yes (new, WebView capture).
+- YouTube transcripts in reader: Yes / Yes / Yes (already present).
+- YouTube account sign-in + recommendations: desktop account provider (own OAuth project) / blocked on Brandon's Google OAuth client ID / Yes (new, SmartTube TV device-code approach — no Brandon credential involved).
+- Podcast archive (Wayback): desktop Yes / researched keyless CDX / Yes (new).
+- Chromecast: n/a desktop / default receiver (no registration) / Yes (new, default receiver). DLNA: desktop partial / no / Android Yes.
+- Keyboard shortcuts: Yes / hardware-keyboard set / Yes (new: Ctrl+1..5 views, Ctrl+R refresh, Ctrl+F search).
+- Built-in user guide parity: Yes / Yes / Yes (updated this round).
+- Self-update: desktop Yes / no (App Store) / Android Yes (since 0.11.0) — Android-only, logged, iOS untouched.
+- yt-dlp runtime, Video Search across sites, SoundCloud/Mixcloud listing feeds, SponsorBlock, chapters: desktop Yes (yt-dlp) / partial / Android Yes — Android-strong areas, logged per instructions; iOS repo not touched.
+- Still blocked, with evidence: NewPipeExtractor (GPL-3.0/AGPL vs this app's MIT license — section A); Reddit thread reading via the public .json API (Reddit shut unauthenticated .json in May 2026; needs a Reddit API app registered under Brandon's account — a subreddit's .rss subscription still works and is in directory search); anything requiring Brandon's own Google Cloud OAuth project (no longer needed for YouTube account features — see E2).
+
+## v0.13.0 summary
+
+Schema v4 (feed description/siteTitle, filter-rule stop flag; explicit Migration(3,4)). Ports: Takeout import, filter pipeline + stop, category rename/delete, age retention + delete behaviour + confirm, reader toggles, search scope, restore-last-view, open by URL, feed description + Reset Title, 9 new directory sources + Google/Bing News feeds, Wayback archive recovery, Groups.io API key, Google Groups WebView sign-in + cookies.txt import, YouTube account (SmartTube-style device-code) + YouTube home, Chromecast (default receiver), keyboard shortcuts, 129 more strings extracted with the committed gen_locales.py pipeline across 15 locales. TalkBack: per-feed refresh stays off Home; all new controls are labelled native controls; dialogs are standard AlertDialogs.

@@ -12,23 +12,32 @@ data class ListReadingPrefs(
     val statusPosition: String = "END" // START | END | OFF
 )
 
+// The spoken templates, as string resources so locales can translate them;
+// English defaults keep the pure function testable without a Context.
+data class SpeechStrings(
+    val read: String = "Read.", val unread: String = "Unread.",
+    val from: String = "From %1\$s.", val by: String = "By %1\$s.",
+    val favorite: String = "Favorite.", val hasMedia: String = "Has media.",
+    val untitled: String = "(untitled)"
+)
+
 object ListReading {
     fun articleSpeech(
         title: String, source: String, author: String, dateStr: String,
         descriptionPlain: String, contentPlain: String,
         isRead: Boolean, isFavorite: Boolean, hasMedia: Boolean,
-        prefs: ListReadingPrefs
+        prefs: ListReadingPrefs, strings: SpeechStrings = SpeechStrings()
     ): String {
-        val status = if (isRead) "Read." else "Unread."
+        val status = if (isRead) strings.read else strings.unread
         val parts = mutableListOf<String>()
-        parts += title.trim().ifBlank { "(untitled)" }
+        parts += title.trim().ifBlank { strings.untitled }
         if (prefs.statusPosition == "START") parts += status
-        if (prefs.readSource && source.isNotBlank()) parts += "From $source."
-        if (prefs.readAuthor && author.isNotBlank()) parts += "By $author."
+        if (prefs.readSource && source.isNotBlank()) parts += strings.from.format(source)
+        if (prefs.readAuthor && author.isNotBlank()) parts += strings.by.format(author)
         if (prefs.readDate && dateStr.isNotBlank()) parts += "$dateStr."
         if (prefs.readFlags) {
-            if (isFavorite) parts += "Favorite."
-            if (hasMedia) parts += "Has media."
+            if (isFavorite) parts += strings.favorite
+            if (hasMedia) parts += strings.hasMedia
         }
         if (prefs.readText) {
             val text = selectText(descriptionPlain, contentPlain, prefs.textAmount)

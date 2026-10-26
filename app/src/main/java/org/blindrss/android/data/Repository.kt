@@ -87,7 +87,7 @@ class Repository(val ctx: Context) {
             if (syncAfter) syncWith(p) else feeds.insert(FeedEntity(url = rf.url.ifEmpty { url }, title = rf.title.ifEmpty { url }, category = rf.category, remoteId = rf.remoteId))
             (feeds.byRemoteId(rf.remoteId) ?: feeds.byUrl(url))?.let { return@withContext it } } }
         val parsed = if (listing) fetchListingFeed(url) else FeedParser.parse(fetchText(url), url)
-        val id = feeds.insert(FeedEntity(url = url, title = parsed.title, category = category))
+        val id = feeds.insert(FeedEntity(url = url, title = parsed.title, category = category, description = parsed.description, siteTitle = parsed.title))
         val feed = feeds.byId(id)!!
         saveArticles(feed, parsed.articles); feed
     }
@@ -101,7 +101,8 @@ class Repository(val ctx: Context) {
                 else ytdlpListing(feed.url)?.let { (t, items) -> ParsedFeed(t, items.map { ParsedArticle(it.url, it.title, it.url, "", "", if (it.dateMs > 0) it.dateMs else System.currentTimeMillis(), it.author, null, null) }) } ?: (p ?: FeedParser.parse(xml, feed.url))
             }
             val n = saveArticles(feed, parsed.articles)
-            feeds.markSuccess(feed.id, System.currentTimeMillis(), parsed.title); n
+            feeds.markSuccess(feed.id, System.currentTimeMillis(), parsed.title)
+            feeds.updateMeta(feed.id, parsed.title, parsed.description); n
         } catch (e: Exception) { feeds.markFailure(feed.id, e.message, System.currentTimeMillis()); throw e }
     }
     // Feed properties. Provider feeds are renamed and moved on the server first, so the next sync keeps the change;
@@ -150,10 +151,15 @@ class Repository(val ctx: Context) {
         RefreshResult(total, notify, failed, local.size, err, failed == local.size && (p0 == null || err != null) && (local.isNotEmpty() || p0 != null))
     }
     // Settings > Sync > Keep per feed: drop the oldest beyond the limit, favorites always kept.
-    private suspend fun trimFeeds() { val keep = settings.maxPerFeed.first(); if (keep > 0) for (f in feeds.all()) articles.trimFeed(f.id, keep) }
+    // Retention by age (Settings > Sync) drops non-favorites older than the cutoff.
+    private suspend fun trimFeeds() { val keep = settings.maxPerFeed.first(); if (keep > 0) for (f in feeds.all()) articles.trimFeed(f.id, keep)
+        val days = settings.retentionDays.first(); if (days > 0) articles.deleteOlderThan(System.currentTimeMillis() - days * 86_400_000L) }
     private suspend fun saveArticles(feed: FeedEntity, all: List<ParsedArticle>): Int {
         // With a per-feed limit, a long feed only contributes its newest items, so trimmed ones never return as new.
-        val keep = settings.maxPerFeed.first(); val parsed = if (keep > 0) all.sortedByDescending { it.date }.take(keep) else all
+        val keep = settings.maxPerFeed.first(); var parsed = if (keep > 0) all.sortedByDescending { it.date }.take(keep) else all
+        // Retention insert cutoff: articles already older than the window are
+        // not inserted, so a refresh cannot resurrect what retention removed.
+        val days = settings.retentionDays.first(); if (days > 0) { val cutoff = System.currentTimeMillis() - days * 86_400_000L; parsed = parsed.filter { it.date <= 0 || it.date >= cutoff } }
         val rules = misc.enabledRules()
         // Skip articles the user deleted, and ones a provider already synced into this feed (same link, provider id).
         val deleted = misc.deletedIds().toHashSet(); val synced = articles.syncedUrls(feed.id).filter { it.isNotEmpty() }.toHashSet()
@@ -163,30 +169,86 @@ class Repository(val ctx: Context) {
         return entities.zip(rows).count { (a, row) -> row != -1L && "__no_notify" !in a.labels.split(",") }
     }
     // Filter rules run on every arriving article, from feeds and providers alike; null means "delete".
+    // A rule's action may be an ordered comma-separated pipeline (desktop
+    // semantics); a rule with stop set ends processing after it applies.
     private fun applyRules(start: ArticleEntity, rules: List<FilterRuleEntity>): ArticleEntity? {
         var a = start
-        for (r in rules) { if (ruleMatches(r, a)) { when (r.action) {
-            "mark_read" -> a = a.copy(isRead = true); "mark_favorite" -> a = a.copy(isFavorite = true); "delete" -> return null
-            "move" -> a = a.copy(folder = r.target?.takeIf { it.isNotBlank() })
-            "label" -> r.target?.takeIf { it.isNotBlank() }?.let { t -> a = a.copy(labels = (a.labels.split(",") + t).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(",")) }
-            "skip_notification" -> a = a.copy(labels = (a.labels.split(",") + "__no_notify").filter { it.isNotBlank() }.distinct().joinToString(","))
-        } } }
+        for (r in rules) { if (!ruleMatches(r, a)) continue
+            for (act in r.action.split(",").map { it.trim() }.filter { it.isNotEmpty() }) { when (act) {
+                "mark_read" -> a = a.copy(isRead = true); "mark_favorite" -> a = a.copy(isFavorite = true); "delete" -> return null
+                "move" -> a = a.copy(folder = r.target?.takeIf { it.isNotBlank() })
+                "label" -> r.target?.takeIf { it.isNotBlank() }?.let { t -> a = a.copy(labels = (a.labels.split(",") + t).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(",")) }
+                "skip_notification" -> a = a.copy(labels = (a.labels.split(",") + "__no_notify").filter { it.isNotBlank() }.distinct().joinToString(","))
+            } }
+            if (r.stop) break
+        }
         return a
     }
     fun ruleMatches(r: FilterRuleEntity, a: ArticleEntity): Boolean {
         val fieldVal = when (r.field) { "title" -> a.title; "content" -> a.content; "author" -> a.author; "url" -> a.url; else -> a.title }
         return when (r.op) { "contains" -> fieldVal.contains(r.value, true); "not_contains" -> !fieldVal.contains(r.value, true); "equals" -> fieldVal.equals(r.value, true); "starts_with" -> fieldVal.startsWith(r.value, true); else -> fieldVal.contains(r.value, true) }
     }
-    suspend fun deleteArticle(a: ArticleEntity) { misc.insertDeleted(DeletedArticleEntity(a.id, a.feedId, a.title, a.url, a.content, a.description, a.date, a.author, a.isRead, a.isFavorite, a.mediaUrl, a.mediaType)); articles.deleteById(a.id) }
+    // Delete behaviour setting: TOMBSTONE keeps a restorable copy in Deleted
+    // Articles (default); PERMANENT keeps only a blank-title id marker in the
+    // tombstone table — invisible in Deleted Articles (its query skips blank
+    // titles) but still blocking resurrection on refresh; MOVE files the
+    // article under a category instead of deleting it.
+    suspend fun deleteArticle(a: ArticleEntity) {
+        when (settings.deleteBehaviour.first()) {
+            "MOVE" -> articles.setFolder(a.id, settings.deleteMoveTarget.first().ifBlank { "Uncategorized" })
+            "PERMANENT" -> { misc.insertDeleted(DeletedArticleEntity(a.id, a.feedId, "", a.url)); articles.deleteById(a.id) }
+            else -> { misc.insertDeleted(DeletedArticleEntity(a.id, a.feedId, a.title, a.url, a.content, a.description, a.date, a.author, a.isRead, a.isFavorite, a.mediaUrl, a.mediaType)); articles.deleteById(a.id) }
+        }
+    }
     suspend fun restoreDeleted(id: String) { val d = misc.deletedById(id) ?: return; articles.insertAll(listOf(ArticleEntity(d.id, d.feedId, d.title, d.url, d.content, d.description, d.date, d.author, d.isRead, d.isFavorite, d.mediaUrl, d.mediaType))); misc.purgeDeleted(id) }
     suspend fun importOpml(xml: String): Int { var n = 0; for (e in Opml.parse(xml)) { try { addFeed(e.xmlUrl, e.category, syncAfter = false); n++ } catch (_: Exception) {} }
         if (n > 0) try { syncProvider() } catch (_: Exception) {}; return n }
+    // YouTube Takeout ZIP: subscriptions, playlists and watched channels
+    // become subscriptions in the YouTube category.
+    suspend fun importTakeout(zipBytes: ByteArray): Int { var n = 0
+        for (e in Takeout.feedEntries(zipBytes)) { try { if (feeds.byUrl(FeedDiscovery.normalizeInput(e.feedUrl)) == null && feeds.byUrl(e.feedUrl) == null) { addFeed(e.feedUrl, "YouTube", syncAfter = false); n++ } } catch (_: Exception) {} }
+        return n }
+    // Podcast archive: recover episodes from Wayback snapshots of this feed.
+    // Snapshots parse like the live feed; already-known articles are ignored
+    // by insert, deleted ones stay deleted (saveArticles filters them).
+    suspend fun recoverArchive(feed: FeedEntity): Int = withContext(Dispatchers.IO) {
+        val cdx = fetchText(WaybackArchive.cdxUrl(feed.url))
+        var added = 0
+        for (snap in WaybackArchive.snapshotUrls(cdx)) {
+            val parsed = try { FeedParser.parse(fetchText(snap), feed.url) } catch (_: Exception) { null } ?: continue
+            val before = articles.byFeed(feed.id).size
+            saveArticles(feed, parsed.articles)
+            added += (articles.byFeed(feed.id).size - before).coerceAtLeast(0)
+        }
+        added }
+    // YouTube account: access tokens are refreshed from the stored refresh
+    // token and cached in memory for the session.
+    @Volatile private var ytAccessCache: Pair<String, Long>? = null
+    suspend fun youtubeAccessToken(): String {
+        ytAccessCache?.let { (token, at) -> if (System.currentTimeMillis() - at < 50 * 60_000L) return token }
+        val refresh = settings.youtubeRefreshToken(); if (refresh.isBlank()) throw java.io.IOException("Not signed in to YouTube")
+        val (id, secret) = settings.youtubeClientConstants()
+        val tokens = YouTubeAccount.refresh(YouTubeAccount.ClientConstants(id, secret), refresh)
+        if (tokens.refreshToken.isNotBlank() && tokens.refreshToken != refresh)
+            settings.saveYoutubeSession(tokens.refreshToken, id, secret, settings.youtubeAccountName.first())
+        ytAccessCache = tokens.accessToken to System.currentTimeMillis(); return tokens.accessToken }
+    suspend fun youtubeHome(): Pair<List<VideoResult>, List<VideoResult>> { val t = youtubeAccessToken()
+        return YouTubeAccount.browse(t, "FEwhat_to_watch") to YouTubeAccount.browse(t, "FEsubscriptions") }
+    // Open Article by URL: fetch a page and extract its readable text.
+    suspend fun openUrlArticle(url: String): Pair<String, String> = withContext(Dispatchers.IO) {
+        val html = fetchArticleHtml(url)
+        val title = try { org.jsoup.Jsoup.parse(html).title().trim() } catch (_: Exception) { "" }
+        title.ifEmpty { url } to FullText.extract(html) }
     // Unsubscribes on the server first; if that fails the feed stays, so it cannot come back on the next sync.
     suspend fun deleteFeed(f: FeedEntity) = withContext(Dispatchers.IO) {
         f.remoteId?.let { id -> buildProvider()?.removeFeed(id, f.category) }
         articles.deleteByFeed(f.id); feeds.delete(f)
     }
     suspend fun markFeedRead(f: FeedEntity) = withContext(Dispatchers.IO) { articles.markFeedRead(f.id); f.remoteId?.let { id -> try { buildProvider()?.markFeedRead(id) } catch (_: Exception) {} } }
+    // Category management (Categories screen): a category is the string on
+    // its feeds plus matching article folder overrides from filter rules.
+    suspend fun renameCategory(old: String, new: String) = withContext(Dispatchers.IO) { feeds.renameCategory(old, new); articles.renameFolder(old, new) }
+    suspend fun deleteCategory(name: String) = withContext(Dispatchers.IO) { feeds.renameCategory(name, "Uncategorized"); articles.renameFolder(name, null) }
     suspend fun markAllRead() = withContext(Dispatchers.IO) { articles.markAllRead(); try { buildProvider()?.markAllRead() } catch (_: Exception) {} }
     suspend fun exportOpml(): String { val list = feeds.all().map { it.title to (it.url to it.category) }; return Opml.write(list) }
     suspend fun fullText(a: ArticleEntity): String {
@@ -204,7 +266,14 @@ class Repository(val ctx: Context) {
         // Forum threads (Reddit, Lemmy, Groups.io, Google Groups) read as one
         // whole discussion.
         ForumText.targetFor(a.url, feeds.byId(a.feedId)?.url ?: "")?.let { t ->
-            try { val payloads = when (t.kind) {
+            try {
+                // Member-only Groups.io archives: with an API key set, the
+                // topic comes from api.groups.io instead of the public pages.
+                if (t.kind == ForumText.Kind.GROUPS_IO) { val apiKey = settings.groupsioApiKey()
+                    if (apiKey.isNotBlank()) { val apiHtml = GroupsIoApi.topicRef(t.jsonUrl)?.let { (_, topicId) ->
+                        try { GroupsIoApi.messagesHtml(fetchJsonAuth(GroupsIoApi.messagesUrl(topicId), apiKey)) } catch (_: Exception) { "" } } ?: ""
+                        if (FullText.plainLength(apiHtml) >= 200) return apiHtml } }
+                val payloads = when (t.kind) {
                     // Public HTML pages: follow Groups.io paging (a message
                     // page first resolves to its topic), cap 5 pages.
                     ForumText.Kind.GROUPS_IO -> { val pages = mutableListOf<String>()
@@ -227,6 +296,12 @@ class Repository(val ctx: Context) {
         val (ua, cookies) = identity()
         http.newCall(Request.Builder().url(url).identity(ua, cookies)
             .header("Accept", "text/html,application/xhtml+xml").build()).execute().use { r ->
+            if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url"); r.body?.string() ?: "" }
+    }
+    // Authenticated JSON API (Groups.io): Bearer API key, no site cookies.
+    private suspend fun fetchJsonAuth(url: String, bearer: String): String = withContext(Dispatchers.IO) {
+        http.newCall(Request.Builder().url(url).header("Authorization", "Bearer $bearer")
+            .header("Accept", "application/json").build()).execute().use { r ->
             if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code} for $url"); r.body?.string() ?: "" }
     }
     // JSON APIs (Reddit, Lemmy) with the same identity as article pages.
@@ -396,7 +471,14 @@ class Repository(val ctx: Context) {
         }
         @Volatile private var instance: Pair<AppDatabase, OkHttpClient>? = null
         private fun shared(ctx: Context) = instance ?: synchronized(this) { instance ?: Pair(
-            Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "blindrss.db").fallbackToDestructiveMigration().build(),
+            Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "blindrss.db")
+                .addMigrations(object : androidx.room.migration.Migration(3, 4) {
+                    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL("ALTER TABLE feeds ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+                        db.execSQL("ALTER TABLE feeds ADD COLUMN siteTitle TEXT NOT NULL DEFAULT ''")
+                        db.execSQL("ALTER TABLE filter_rules ADD COLUMN stop INTEGER NOT NULL DEFAULT 0")
+                    }
+                }).fallbackToDestructiveMigration().build(),
             OkHttpClient.Builder().cache(Cache(java.io.File(ctx.applicationContext.cacheDir, "http"), 50L * 1024 * 1024)).build()).also { instance = it } }
     }
 }

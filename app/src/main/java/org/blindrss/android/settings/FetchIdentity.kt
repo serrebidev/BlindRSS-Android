@@ -19,4 +19,15 @@ object FetchIdentity {
     // A pasted Cookie header is sent verbatim; strip anything that is not a
     // header-safe cookie string so a bad paste cannot break every fetch.
     fun sanitizeCookies(raw: String): String = raw.trim().replace(Regex("[\\r\\n]"), "").take(4096)
+    // A cookies.txt (Netscape format, as browsers and the desktop export)
+    // becomes a Cookie header: name=value pairs from every cookie line.
+    fun netscapeToHeader(text: String): String {
+        val pairs = mutableListOf<String>()
+        for (line in text.lineSequence()) { val l = line.removePrefix("#HttpOnly_")
+            if (l.startsWith("#") || l.isBlank()) continue
+            val parts = l.split("\t"); if (parts.size < 7) continue
+            val name = parts[5].trim(); val value = parts[6].trim()
+            if (name.isNotEmpty()) pairs += "$name=$value" }
+        return sanitizeCookies(pairs.joinToString("; "))
+    }
 }

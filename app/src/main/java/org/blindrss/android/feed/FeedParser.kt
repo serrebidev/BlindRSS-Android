@@ -8,7 +8,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 import org.xml.sax.InputSource
 
 data class ParsedArticle(val guid: String, val title: String, val url: String, val content: String, val description: String, val date: Long, val author: String, val mediaUrl: String?, val mediaType: String?, val chaptersUrl: String? = null)
-data class ParsedFeed(val title: String, val articles: List<ParsedArticle>)
+data class ParsedFeed(val title: String, val articles: List<ParsedArticle>, val description: String = "")
 
 object FeedParser {
     fun stableId(feedUrl: String, guid: String): String {
@@ -31,6 +31,12 @@ object FeedParser {
         for (n in names) { val nl = e.getElementsByTagNameNS("*", n); if (nl.length > 0) return nl.item(0).textContent.trim() }
         return ""
     }
+    // Direct children only: a channel's own description, not an item's.
+    private fun childText(e: Element, vararg names: String): String {
+        val kids = e.childNodes
+        for (i in 0 until kids.length) { val n = kids.item(i); if (n is Element && (n.localName ?: n.tagName) in names) return n.textContent.trim() }
+        return ""
+    }
     private fun attrLink(e: Element): String {
         val nl = e.getElementsByTagNameNS("*", "link")
         var alt = ""
@@ -48,6 +54,7 @@ object FeedParser {
     private fun parseRss(doc: org.w3c.dom.Document, feedUrl: String, rdf: Boolean): ParsedFeed {
         val ch = doc.getElementsByTagNameNS("*", "channel").let { if (it.length > 0) it.item(0) as Element else null }
         val title = if (ch != null) text(ch, "title") else "Feed"
+        val feedDesc = if (ch != null) childText(ch, "description", "subtitle") else ""
         val items = doc.getElementsByTagNameNS("*", "item")
         val out = mutableListOf<ParsedArticle>()
         for (i in 0 until items.length) { val e = items.item(i) as Element
@@ -61,10 +68,11 @@ object FeedParser {
             val chaptersUrl = if (chNodes.length > 0) (chNodes.item(0) as Element).getAttribute("url").ifEmpty { null } else null
             out += ParsedArticle(guid, text(e, "title").ifEmpty { "(untitled)" }, link, text(e, "encoded", "content").ifEmpty { text(e, "description") }, text(e, "description"), parseDate(text(e, "pubDate", "date", "published", "updated")), text(e, "creator", "author", "name"), media, mtype, chaptersUrl)
         }
-        return ParsedFeed(title.ifEmpty { "Feed" }, out)
+        return ParsedFeed(title.ifEmpty { "Feed" }, out, feedDesc)
     }
     private fun parseAtom(doc: org.w3c.dom.Document, feedUrl: String): ParsedFeed {
         val title = text(doc.documentElement, "title").ifEmpty { "Feed" }
+        val feedDesc = childText(doc.documentElement, "subtitle")
         val entries = doc.getElementsByTagNameNS("*", "entry")
         val out = mutableListOf<ParsedArticle>()
         for (i in 0 until entries.length) { val e = entries.item(i) as Element
@@ -75,7 +83,7 @@ object FeedParser {
             for (j in 0 until links.length) { val el = links.item(j) as Element; if (el.getAttribute("rel") == "enclosure") { media = el.getAttribute("href"); mtype = el.getAttribute("type") } }
             out += ParsedArticle(guid, text(e, "title").ifEmpty { "(untitled)" }, link, text(e, "content").ifEmpty { text(e, "summary") }, text(e, "summary"), parseDate(text(e, "published", "updated")), text(e, "name", "author"), media, mtype)
         }
-        return ParsedFeed(title, out)
+        return ParsedFeed(title, out, feedDesc)
     }
     private fun parseJsonFeed(json: String, feedUrl: String): ParsedFeed {
         val title = Regex("\"title\"\\s*:\\s*\"([^\"]*)\"").find(json)?.groupValues?.get(1) ?: "Feed"
@@ -219,7 +227,54 @@ object FullText {
         return sb.toString()
     }
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    data class Block(val heading: Boolean, val text: String)
+    // kind: "p" paragraph, "li" list item, "quote" blockquote.
+    data class Block(val heading: Boolean, val text: String, val kind: String = "p")
+
+    // Reader presentation (desktop/iOS reader toggles, all off by default):
+    // list bullets, quote markers, link targets spoken after link text, and
+    // image alt text as its own line. With every toggle off this is blocks().
+    data class Presentation(val bullets: Boolean = false, val quotes: Boolean = false, val linkTargets: Boolean = false, val imageAlt: Boolean = false) {
+        val any get() = bullets || quotes || linkTargets || imageAlt
+    }
+    fun blocksStyled(html: String, p: Presentation): List<Block> {
+        if (!p.any) return blocks(html)
+        val out = mutableListOf<Block>()
+        try {
+            val sel = "h1, h2, h3, h4, h5, h6, p, li, blockquote"
+            val body = org.jsoup.Jsoup.parseBodyFragment(html).body()
+            for (el in body.select(sel)) {
+                if (el.select(sel).size > 1) continue
+                val kind = when (el.tagName()) { "li" -> "li"; "blockquote" -> "quote"; else -> "p" }
+                var t = styledText(el, p)
+                if (p.imageAlt) for (img in el.select("img")) { val alt = img.attr("alt").trim(); if (alt.length >= 2) out += Block(false, "Image: $alt") }
+                if (t.length < 2) continue
+                if (kind == "li" && p.bullets) t = "• $t"
+                if (kind == "quote" && p.quotes) t = "Quote: $t"
+                if (out.lastOrNull()?.text == t) continue
+                out += Block(el.tagName().startsWith("h"), t, kind)
+            }
+            if (out.sumOf { it.text.length } < body.text().length / 2) return blocks(html).map { b ->
+                if (b.kind == "li" && p.bullets) b.copy(text = "• ${b.text}") else if (b.kind == "quote" && p.quotes) b.copy(text = "Quote: ${b.text}") else b }
+        } catch (_: Exception) { return blocks(html) }
+        return out
+    }
+    // Element text with link targets appended after each link's own text.
+    private fun styledText(el: org.jsoup.nodes.Element, p: Presentation): String {
+        if (!p.linkTargets) return el.text().trim()
+        val sb = StringBuilder()
+        fun walk(n: org.jsoup.nodes.Node) {
+            when (n) {
+                is org.jsoup.nodes.TextNode -> sb.append(n.text())
+                is org.jsoup.nodes.Element -> {
+                    if (n.tagName() == "img") return
+                    n.childNodes().forEach { walk(it) }
+                    if (n.tagName() == "a") { val href = n.attr("href").trim(); if (href.startsWith("http")) sb.append(" ($href)") }
+                }
+            }
+        }
+        el.childNodes().forEach { walk(it) }
+        return sb.toString().replace(Regex("\\s+"), " ").trim()
+    }
     // Split article HTML into readable blocks so each paragraph is its own
     // TalkBack stop in the reader. Never wrap body text in a contentDescription.
     fun blocks(html: String): List<Block> {
@@ -232,7 +287,7 @@ object FullText {
                 if (el.select(sel).size > 1) continue
                 val t = el.text().trim(); if (t.length < 2) continue
                 if (out.lastOrNull()?.text == t) continue
-                out += Block(el.tagName().startsWith("h"), t)
+                out += Block(el.tagName().startsWith("h"), t, when (el.tagName()) { "li" -> "li"; "blockquote" -> "quote"; else -> "p" })
             }
             // Text sitting outside block tags (div/br layouts) would be lost: fall back to plain splitting.
             if (out.sumOf { it.text.length } < body.text().length / 2) out.clear()

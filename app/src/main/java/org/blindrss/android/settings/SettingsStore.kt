@@ -115,6 +115,43 @@ class SettingsStore(private val ctx: Context) {
     suspend fun siteCookies(): String { val v = ctx.ds.data.first()[stringPreferencesKey("site_cookies_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
     suspend fun setSiteCookies(raw: String) { val clean = FetchIdentity.sanitizeCookies(raw); ctx.ds.edit { it[stringPreferencesKey("site_cookies_enc")] = if (clean.isEmpty()) "" else encrypt(clean) } }
     val refreshChime = flag("refresh_chime", true)
+    // Article retention by age in days; 0 keeps everything (desktop retention).
+    val retentionDays: Flow<Int> = ctx.ds.data.map { it[intPreferencesKey("retention_days")] ?: 0 }
+    suspend fun setRetentionDays(v: Int) { ctx.ds.edit { it[intPreferencesKey("retention_days")] = v } }
+    // Delete behaviour: TOMBSTONE (Deleted Articles, default), PERMANENT, or
+    // MOVE to a category; optional confirmation prompt before deleting.
+    val deleteBehaviour: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("delete_behaviour")] ?: "TOMBSTONE" }
+    val deleteMoveTarget: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("delete_move_target")] ?: "Uncategorized" }
+    val confirmDelete = flag("confirm_delete", false)
+    suspend fun setDeleteBehaviour(v: String, target: String) { ctx.ds.edit { it[stringPreferencesKey("delete_behaviour")] = v; it[stringPreferencesKey("delete_move_target")] = target } }
+    // Search scope: titles only, or titles and text (default).
+    val searchTitlesOnly = flag("search_titles_only", false)
+    // Reader presentation toggles (desktop/iOS; all off by default).
+    val readerBullets = flag("reader_bullets", false)
+    val readerQuotes = flag("reader_quotes", false)
+    val readerLinkTargets = flag("reader_link_targets", false)
+    val readerImageAlt = flag("reader_image_alt", false)
+    // Groups.io API key (Settings > Sync), encrypted like the other keys:
+    // unlocks member-only group archives in ForumText via api.groups.io.
+    suspend fun groupsioApiKey(): String { val v = ctx.ds.data.first()[stringPreferencesKey("groupsio_key_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+    suspend fun setGroupsioApiKey(v: String) { ctx.ds.edit { it[stringPreferencesKey("groupsio_key_enc")] = if (v.isEmpty()) "" else encrypt(v) } }
+    // YouTube account (SmartTube-style device-code sign-in): the refresh
+    // token and the scraped TV client constants, all encrypted.
+    suspend fun youtubeRefreshToken(): String { val v = ctx.ds.data.first()[stringPreferencesKey("yt_refresh_enc")] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+    suspend fun youtubeClientConstants(): Pair<String, String> { val p = ctx.ds.data.first()
+        fun dec(k: String): String { val v = p[stringPreferencesKey(k)] ?: ""; return if (v.isEmpty()) "" else decrypt(v) }
+        return dec("yt_client_id_enc") to dec("yt_client_secret_enc") }
+    val youtubeAccountName: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("yt_account_name")] ?: "" }
+    suspend fun saveYoutubeSession(refreshToken: String, clientId: String, clientSecret: String, accountName: String) { ctx.ds.edit {
+        it[stringPreferencesKey("yt_refresh_enc")] = if (refreshToken.isEmpty()) "" else encrypt(refreshToken)
+        it[stringPreferencesKey("yt_client_id_enc")] = if (clientId.isEmpty()) "" else encrypt(clientId)
+        it[stringPreferencesKey("yt_client_secret_enc")] = if (clientSecret.isEmpty()) "" else encrypt(clientSecret)
+        it[stringPreferencesKey("yt_account_name")] = accountName } }
+    suspend fun clearYoutubeSession() { ctx.ds.edit { it.remove(stringPreferencesKey("yt_refresh_enc")); it.remove(stringPreferencesKey("yt_client_id_enc")); it.remove(stringPreferencesKey("yt_client_secret_enc")); it.remove(stringPreferencesKey("yt_account_name")) } }
+    // Last content route, restored at launch (desktop remember-last-feed).
+    val restoreLastView = flag("restore_last_view", true)
+    val lastRoute: Flow<String> = ctx.ds.data.map { it[stringPreferencesKey("last_route")] ?: "" }
+    suspend fun setLastRoute(v: String) { ctx.ds.edit { it[stringPreferencesKey("last_route")] = v } }
     val skipSilence: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("skip_silence")] ?: true }
     val sponsorBlock: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("sponsorblock")] ?: true }
     val eqEnabled: Flow<Boolean> = ctx.ds.data.map { it[booleanPreferencesKey("eq_enabled")] ?: false }

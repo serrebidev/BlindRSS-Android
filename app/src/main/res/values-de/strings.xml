@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Generated from the desktop BlindRSS de gettext catalog; do not edit by hand. -->
 <resources>
     <string name="settings">Einstellungen</string>
     <string name="all_articles">Alle Artikel</string>
@@ -21,4 +20,13 @@
     <string name="export_opml">OPML exportieren</string>
     <string name="video_search_all_sites">Alle Seiten</string>
     <string name="check_for_updates">Nach Updates suchen</string>
+    <string name="cancel">Abbrechen</string>
+    <string name="title">Titel</string>
+    <string name="author">Autor</string>
+    <string name="date">Datum</string>
+    <string name="article_text">Artikeltext</string>
+    <string name="groups_io_api_key">Groups.io-API-Schlüssel</string>
+    <string name="notifications">Benachrichtigungen</string>
+    <string name="downloads">Downloads</string>
+    <string name="equalizer">Equalizer</string>
 </resources>

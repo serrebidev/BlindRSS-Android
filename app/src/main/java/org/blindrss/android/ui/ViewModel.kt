@@ -108,6 +108,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun markAllRead() { viewModelScope.launch { repo.markAllRead(); announce("All articles marked read") } }
     fun markFeedRead(f: FeedEntity) { viewModelScope.launch { repo.markFeedRead(f); announce("Marked all read in ${f.title}") } }
     fun importOpml(xml: String) { viewModelScope.launch { val n = repo.importOpml(xml); announce("Imported $n feeds from OPML") } }
+    fun importTakeout(bytes: ByteArray) { viewModelScope.launch { try { val n = repo.importTakeout(bytes); announce("Imported $n subscriptions from YouTube Takeout") } catch (e: Exception) { announce("Takeout import failed: ${e.message}") } } }
+    // YouTube account sign-in (device-code flow): Idle / Waiting(code) /
+    // Working / Failed(message). Signed-in state itself lives in settings.
+    sealed interface YtSignIn { object Idle : YtSignIn; object Working : YtSignIn
+        data class Waiting(val code: org.blindrss.android.feed.YouTubeAccount.DeviceCode) : YtSignIn
+        data class Failed(val message: String) : YtSignIn }
+    val ytSignIn = MutableStateFlow<YtSignIn>(YtSignIn.Idle)
+    fun startYouTubeSignIn() { viewModelScope.launch {
+        ytSignIn.value = YtSignIn.Working
+        try { val c = org.blindrss.android.feed.YouTubeAccount.fetchClientConstants()
+            val dc = org.blindrss.android.feed.YouTubeAccount.requestDeviceCode(c)
+            ytSignIn.value = YtSignIn.Waiting(dc); announce("Enter code ${dc.userCode} at google.com/device")
+            val deadline = System.currentTimeMillis() + dc.expiresInSec * 1000L
+            var delayMs = dc.intervalSec.coerceAtLeast(5) * 1000L
+            while (System.currentTimeMillis() < deadline) { kotlinx.coroutines.delay(delayMs)
+                val (tokens, err) = org.blindrss.android.feed.YouTubeAccount.pollToken(c, dc.deviceCode)
+                if (tokens != null) { repo.settings.saveYoutubeSession(tokens.refreshToken, c.id, c.secret, "YouTube account")
+                    ytSignIn.value = YtSignIn.Idle; announce("Signed in to YouTube"); return@launch }
+                if (err == "slow_down") delayMs += 5000
+                else if (err != "pending") { ytSignIn.value = YtSignIn.Failed("Sign-in failed: $err"); announce("YouTube sign-in failed"); return@launch } }
+            ytSignIn.value = YtSignIn.Failed("The code expired. Try again.")
+        } catch (e: Exception) { ytSignIn.value = YtSignIn.Failed(e.message ?: "Sign-in failed"); announce("YouTube sign-in failed: ${e.message}") } } }
+    fun signOutYouTube() { viewModelScope.launch { repo.settings.clearYoutubeSession(); ytSignIn.value = YtSignIn.Idle; announce("Signed out of YouTube") } }
+    fun recoverArchive(f: FeedEntity) { viewModelScope.launch { announce("Checking the Wayback Machine for ${f.title}"); try { val n = repo.recoverArchive(f); announce("Recovered $n archived episodes for ${f.title}") } catch (e: Exception) { announce("Archive recovery failed: ${e.message}") } } }
+    fun renameCategory(old: String, new: String) { viewModelScope.launch { repo.renameCategory(old, new); announce("Category renamed to $new") } }
+    fun deleteCategory(name: String) { viewModelScope.launch { repo.deleteCategory(name); announce("Category $name deleted. Its feeds moved to Uncategorized.") } }
+    // Open Media by URL: a throwaway article (feed 0) the player resolves —
+    // direct media links play as-is, pages go through yt-dlp like Video Search.
+    fun openMediaUrl(url: String) { val u = url.trim(); if (u.isBlank()) return
+        val direct = u.lowercase().substringBefore("?").let { it.endsWith(".mp3") || it.endsWith(".m4a") || it.endsWith(".mp4") || it.endsWith(".opus") || it.endsWith(".ogg") || it.endsWith(".wav") }
+        val a = ArticleEntity(id = org.blindrss.android.feed.FeedParser.stableId("open-media", u), feedId = 0, title = u, url = u,
+            date = System.currentTimeMillis(), mediaUrl = if (direct) u else null, mediaType = if (direct) "audio" else null)
+        play(a) }
     // Episodes, and pages yt-dlp can play (YouTube and similar) on supported devices.
     fun canPlay(a: ArticleEntity) = a.mediaUrl != null || (Ytdl.supported() && (isYouTube(a.url) || org.blindrss.android.feed.MediaSites.isPlayablePage(a.url)))
     fun play(a: ArticleEntity) { viewModelScope.launch { player.play(a); announce(if (a.mediaUrl == null) "Loading audio: ${a.title}" else "Playing: ${a.title}") } }
@@ -230,6 +263,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val castDevices = MutableStateFlow<List<org.blindrss.android.cast.DlnaDevice>>(emptyList())
     var castTarget: org.blindrss.android.cast.DlnaDevice? = null
     fun discoverCast(ctx: android.content.Context) { viewModelScope.launch { announce("Searching for DLNA renderers"); castDevices.value = org.blindrss.android.cast.Dlna.discover(ctx); announce("Found ${castDevices.value.size} DLNA devices") } }
+    // Google Cast session start: hand it whatever is playing locally.
+    fun castToGoogleCast(session: com.google.android.gms.cast.framework.CastSession) { viewModelScope.launch {
+        val id = player.currentId() ?: return@launch announce("Nothing playing to cast")
+        val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast")
+        val url = a.mediaUrl ?: return@launch announce("Current article has no direct media to cast")
+        val ok = org.blindrss.android.cast.GoogleCast.load(session, url, a.title, org.blindrss.android.cast.GoogleCast.contentTypeFor(url, a.mediaType))
+        if (ok) { player.exo.pause(); announce("Casting ${a.title}") } else announce("Cast failed") } }
     fun castCurrent(device: org.blindrss.android.cast.DlnaDevice) { viewModelScope.launch { val id = player.currentId() ?: return@launch announce("Nothing playing to cast"); val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast"); val url = a.mediaUrl ?: return@launch announce("Current article has no media"); val ok = org.blindrss.android.cast.Dlna.play(device, url, a.title); castTarget = device; player.exo.pause(); announce(if (ok) "Casting ${a.title} to ${device.name}" else "Cast failed to ${device.name}") } }
     fun searchDirectory(q: String, cb: (List<org.blindrss.android.feed.SearchHit>) -> Unit) { viewModelScope.launch { try { cb(org.blindrss.android.feed.DiscoverySearch.search(q)) } catch (e: Exception) { announce("Directory search failed: ${e.message}"); cb(emptyList()) } } }
     // One-time import files pushed to the app's external files dir (desktop account migration).

@@ -242,6 +242,33 @@ object GoogleGroups {
     private fun path(url: String) = try { java.net.URI(url.trim()).path ?: "" } catch (_: Exception) { "" }
 }
 
+// The desktop's Groups.io API-key path (api.groups.io/v1), for member-only
+// archives the public pages refuse. The user creates a key in their Groups.io
+// account settings and pastes it in Settings > Sync; requests carry it as a
+// Bearer token. Parsing is pure; Repository fetches.
+object GroupsIoApi {
+    // (group name, topic id) from a /g/<name>/topic/<id> article URL.
+    fun topicRef(url: String): Pair<String, Long>? {
+        if (!GroupsIo.isGroupsIo(url)) return null
+        val m = Regex("^/g/([\\w.\\-]+)/topic/(?:[^/]+/)?(\\d+)/?$").find(try { java.net.URI(url.trim()).path ?: "" } catch (_: Exception) { "" }) ?: return null
+        return m.groupValues[1] to (m.groupValues[2].toLongOrNull() ?: return null)
+    }
+    fun messagesUrl(topicId: Long) = "https://api.groups.io/v1/getmessages?topic_id=$topicId"
+    // getmessages page -> one rendered topic document, same shape as the
+    // public HTML path (author + body html per message).
+    fun messagesHtml(json: String): String {
+        val data = try { org.json.JSONObject(json).optJSONArray("data") } catch (_: Exception) { null } ?: return ""
+        var title = ""
+        val msgs = mutableListOf<Pair<String, String>>()
+        for (i in 0 until data.length()) { val o = data.optJSONObject(i) ?: continue
+            if (title.isEmpty()) title = o.optString("subject")
+            val author = o.optString("user_name").ifEmpty { o.optJSONObject("poster")?.optString("name") ?: "" }.ifEmpty { "Unknown author" }
+            val body = o.optString("body"); if (body.isNotBlank()) msgs += author to body }
+        if (msgs.isEmpty()) return ""
+        return GroupsIo.renderDocument(title, listOf(GroupsIo.TopicPage(title, msgs, null)))
+    }
+}
+
 // Groups.io: group pages map to the group's native RSS; public topic pages
 // read as whole threads (the desktop's HTML path). The optional API-key path
 // (member-only archives) has no Android account setting and stays desktop-only.

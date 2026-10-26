@@ -16,6 +16,10 @@ import kotlinx.coroutines.flow.Flow
     // Refresh results touch only status columns, so an edit or mute made while a refresh runs is not overwritten.
     @Query("UPDATE feeds SET lastError = NULL, lastSuccessAt = :at, consecutiveFailures = 0, title = CASE WHEN title = '' THEN :title ELSE title END WHERE id = :id") suspend fun markSuccess(id: Long, at: Long, title: String)
     @Query("UPDATE feeds SET muted = :muted WHERE id = :id") suspend fun setMuted(id: Long, muted: Boolean)
+    // What the feed calls itself, refreshed on every parse: siteTitle backs
+    // Reset Title, description is shown on the feed's page.
+    @Query("UPDATE feeds SET siteTitle = :siteTitle, description = :description WHERE id = :id") suspend fun updateMeta(id: Long, siteTitle: String, description: String)
+    @Query("UPDATE feeds SET category = :newName WHERE category = :oldName") suspend fun renameCategory(oldName: String, newName: String)
     @Query("UPDATE feeds SET lastError = :error, lastErrorAt = :at, consecutiveFailures = consecutiveFailures + 1 WHERE id = :id") suspend fun markFailure(id: Long, error: String?, at: Long)
 }
 @Dao interface ArticleDao {
@@ -26,6 +30,11 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT * FROM articles WHERE mediaUrl IS NOT NULL ORDER BY date DESC") fun observePodcasts(): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE feedId = :feedId ORDER BY date DESC") fun observeByFeed(feedId: Long): Flow<List<ArticleEntity>>
     @Query("SELECT * FROM articles WHERE title LIKE '%' || :q || '%' OR content LIKE '%' || :q || '%' OR description LIKE '%' || :q || '%' ORDER BY date DESC") fun search(q: String): Flow<List<ArticleEntity>>
+    @Query("SELECT * FROM articles WHERE title LIKE '%' || :q || '%' ORDER BY date DESC") fun searchTitles(q: String): Flow<List<ArticleEntity>>
+    // Age retention: drop non-favorites older than the cutoff.
+    @Query("DELETE FROM articles WHERE isFavorite = 0 AND date > 0 AND date < :cutoff") suspend fun deleteOlderThan(cutoff: Long)
+    @Query("UPDATE articles SET folder = :folder WHERE id = :id") suspend fun setFolder(id: String, folder: String?)
+    @Query("UPDATE articles SET folder = :newName WHERE folder = :oldName") suspend fun renameFolder(oldName: String, newName: String?)
     @Query("SELECT * FROM articles WHERE id = :id") fun observeById(id: String): Flow<ArticleEntity?>
     @Query("SELECT * FROM articles WHERE id = :id") suspend fun byId(id: String): ArticleEntity?
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertAll(items: List<ArticleEntity>): List<Long>
@@ -52,7 +61,8 @@ import kotlinx.coroutines.flow.Flow
     @Query("UPDATE articles SET id = :to WHERE id = :from") suspend fun rekey(from: String, to: String)
 }
 @Dao interface MiscDao {
-    @Query("SELECT * FROM deleted_articles ORDER BY deletedAt DESC") fun observeDeleted(): Flow<List<DeletedArticleEntity>>
+    // Blank-title rows are permanent-delete id markers, not restorable articles.
+    @Query("SELECT * FROM deleted_articles WHERE title != '' ORDER BY deletedAt DESC") fun observeDeleted(): Flow<List<DeletedArticleEntity>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDeleted(d: DeletedArticleEntity)
     @Query("DELETE FROM deleted_articles WHERE id = :id") suspend fun purgeDeleted(id: String)
     @Query("SELECT * FROM deleted_articles WHERE id = :id") suspend fun deletedById(id: String): DeletedArticleEntity?
@@ -83,7 +93,7 @@ import kotlinx.coroutines.flow.Flow
     @Query("SELECT articles.* FROM articles INNER JOIN downloads ON downloads.articleId = articles.id ORDER BY downloads.downloadedAt DESC") fun observeDownloaded(): Flow<List<ArticleEntity>>
     @Query("SELECT articleId FROM downloads") fun observeDownloadIds(): Flow<List<String>>
 }
-@Database(entities = [FeedEntity::class, ArticleEntity::class, ChapterEntity::class, DeletedArticleEntity::class, CategoryEntity::class, SmartFolderEntity::class, FilterRuleEntity::class, DownloadEntity::class, PlaybackStateEntity::class], version = 3, exportSchema = false)
+@Database(entities = [FeedEntity::class, ArticleEntity::class, ChapterEntity::class, DeletedArticleEntity::class, CategoryEntity::class, SmartFolderEntity::class, FilterRuleEntity::class, DownloadEntity::class, PlaybackStateEntity::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun feedDao(): FeedDao
     abstract fun articleDao(): ArticleDao

@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Generated from the desktop BlindRSS ru gettext catalog; do not edit by hand. -->
 <resources>
     <string name="settings">Настройки</string>
     <string name="all_articles">Все статьи</string>
@@ -22,4 +21,13 @@
     <string name="export_opml">Экспорт OPML</string>
     <string name="video_search_all_sites">Все сайты</string>
     <string name="check_for_updates">Проверить наличие обновлений</string>
+    <string name="cancel">Отмена</string>
+    <string name="title">Заголовок</string>
+    <string name="author">Автор</string>
+    <string name="date">Дата</string>
+    <string name="article_text">Текст статьи</string>
+    <string name="groups_io_api_key">API-ключ Groups.io</string>
+    <string name="notifications">Уведомления</string>
+    <string name="downloads">Загрузки</string>
+    <string name="equalizer">Эквалайзер</string>
 </resources>
