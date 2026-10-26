@@ -64,7 +64,12 @@ class PlayerController private constructor(private val ctx: Context, private val
         .setHandleAudioBecomingNoisy(true) // pause when headphones are unplugged
         .setWakeMode(C.WAKE_MODE_NETWORK) // keep streaming with the screen off
         .setSeekBackIncrementMs(BACK_MS).setSeekForwardIncrementMs(FORWARD_MS).build()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // The handler matters: this scope does the playback bookkeeping
+    // (position saves, queue saves, played marks) on timers and player
+    // callbacks. Without it, one failed database or settings write in
+    // that bookkeeping reached the default handler and crashed the app
+    // mid-listen; now it is recorded to the crash report instead.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + org.blindrss.android.CrashLog.handler(ctx))
     private val _title = MutableStateFlow(""); val title: StateFlow<String> = _title
     private val _playing = MutableStateFlow(false); val playing: StateFlow<Boolean> = _playing
     private val _speed = MutableStateFlow(1f); val speed: StateFlow<Float> = _speed
@@ -201,9 +206,12 @@ class PlayerController private constructor(private val ctx: Context, private val
     }
     suspend fun loadSponsorBlock(articleUrl: String) {
         sponsorSegments = emptyList()
-        if (!repo.settings.sponsorBlock.first()) return
+        // The settings read lives inside the try: it used to sit outside,
+        // so a settings failure aborted the caller's launch (and, before
+        // the scope handler, crashed the app) before resume could run.
+        try { if (!repo.settings.sponsorBlock.first()) return
         val vid = Regex("(?:v=|youtu\\.be/|/shorts/)([\\w-]{11})").find(articleUrl)?.groupValues?.get(1) ?: return
-        try { val json = withContext(Dispatchers.IO) { java.net.URL("https://sponsor.ajay.app/api/skipSegments?videoID=$vid&categories=[%22sponsor%22,%22selfpromo%22,%22interaction%22]").readText() }
+        val json = withContext(Dispatchers.IO) { java.net.URL("https://sponsor.ajay.app/api/skipSegments?videoID=$vid&categories=[%22sponsor%22,%22selfpromo%22,%22interaction%22]").readText() }
             sponsorSegments = Regex("\"segment\"\\s*:\\s*\\[\\s*([0-9.]+)\\s*,\\s*([0-9.]+)\\s*\\]").findAll(json).map { (it.groupValues[1].toDouble() * 1000).toLong() to (it.groupValues[2].toDouble() * 1000).toLong() }.toList()
         } catch (_: Exception) {}
     }
@@ -267,6 +275,6 @@ class DownloadDoneReceiver : BroadcastReceiver() {
         val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
         val (articleId, path) = Downloads.finished(ctx, id) ?: return
         val pending = goAsync()
-        CoroutineScope(Dispatchers.IO).launch { try { Repository(ctx.applicationContext).misc.insertDownload(DownloadEntity(articleId, path)) } finally { pending.finish() } }
+        CoroutineScope(Dispatchers.IO).launch { try { Repository(ctx.applicationContext).misc.insertDownload(DownloadEntity(articleId, path)) } catch (_: Exception) {} finally { pending.finish() } }
     }
 }

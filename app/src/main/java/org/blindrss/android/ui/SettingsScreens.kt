@@ -80,7 +80,7 @@ fun SettingsScreen(nav: NavController, vm: AppViewModel) {
     val s = vm.repo.settings; val scope = rememberCoroutineScope()
     val active by s.provider.collectAsState(ProviderType.LOCAL)
     var who by remember { mutableStateOf("") }
-    LaunchedEffect(active) { who = s.account(active).let { it.user.ifEmpty { it.url } } }
+    LaunchedEffect(active) { who = try { s.account(active).let { it.user.ifEmpty { it.url } } } catch (_: Exception) { "" } }
     var addMenu by remember { mutableStateOf(false) }; var confirmSignOut by remember { mutableStateOf(false) }
     SettingsPage("Settings", nav, vm) {
         item { Heading(stringResource(R.string.account)) }
@@ -115,8 +115,8 @@ fun ProviderSetupScreen(nav: NavController, vm: AppViewModel, type: ProviderType
     var url by remember { mutableStateOf("") }; var user by remember { mutableStateOf("") }; var secret by remember { mutableStateOf("") }
     var appId by remember { mutableStateOf("") }; var appKey by remember { mutableStateOf("") }
     var hasSession by remember { mutableStateOf(false) }; var status by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }
-    LaunchedEffect(type) { val a = s.account(type); url = a.url; user = a.user; appId = a.appId; appKey = a.appKey
-        if (type == ProviderType.NEWSBLUR) hasSession = a.secret.isNotEmpty() else secret = a.secret }
+    LaunchedEffect(type) { try { val a = s.account(type); url = a.url; user = a.user; appId = a.appId; appKey = a.appKey
+        if (type == ProviderType.NEWSBLUR) hasSession = a.secret.isNotEmpty() else secret = a.secret } catch (_: Exception) {} }
     // Required fields per provider, in screen order.
     val required = when (type) {
         ProviderType.MINIFLUX -> listOf("Server URL" to url, "API key" to secret)
@@ -243,7 +243,7 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
             val onStart by s.refreshOnStart.collectAsState(false); val notify by s.notifyNew.collectAsState(true); val keep by s.maxPerFeed.collectAsState(0)
             val chime by s.refreshChime.collectAsState(true); val uaPreset by s.feedUaPreset.collectAsState("BLINDRSS")
             var cookies by remember { mutableStateOf("") }; var cookiesLoaded by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) { cookies = s.siteCookies(); cookiesLoaded = true }
+            LaunchedEffect(Unit) { try { cookies = s.siteCookies() } catch (_: Exception) {}; cookiesLoaded = true }
             val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (!ok) status = "Notifications are blocked. Allow them in Android settings." }
             SettingsPage("Sync and notifications", nav, vm) {
                 item { Choices(stringResource(R.string.sync_in_background), listOf(0 to "Off", 15 to "Every 15 minutes", 30 to "Every 30 minutes", 60 to "Every hour", 240 to "Every 4 hours", 720 to "Every 12 hours"), interval) {
@@ -272,7 +272,7 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { Heading(stringResource(R.string.groups_io)) }
                 item { Note(stringResource(R.string.member_only_group_archives_need)) }
                 item { var gio by remember { mutableStateOf("") }; var gioLoaded by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) { gio = s.groupsioApiKey(); gioLoaded = true }
+                    LaunchedEffect(Unit) { try { gio = s.groupsioApiKey() } catch (_: Exception) {}; gioLoaded = true }
                     SecretField(stringResource(R.string.groups_io_api_key), gio) { gio = it }
                     WideButton(stringResource(R.string.save_groups_io_key), gioLoaded) { scope.launch { s.setGroupsioApiKey(gio.trim()); status = "Groups.io key saved" } } }
                 item { Heading(stringResource(R.string.google_groups)) }
@@ -300,7 +300,7 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                 item { Note(stringResource(R.string.equalizer_and_sleep_timer_are)) }
             } }
         "discovery" -> { var newsApi by remember { mutableStateOf("") }; var theNewsApi by remember { mutableStateOf("") }
-            LaunchedEffect(Unit) { newsApi = s.newsApiKey(); theNewsApi = s.theNewsApiKey() }
+            LaunchedEffect(Unit) { try { newsApi = s.newsApiKey(); theNewsApi = s.theNewsApiKey() } catch (_: Exception) {} }
             SettingsPage("Discovery", nav, vm) {
                 item { Note(stringResource(R.string.optional_keys_they_add_news)) }
                 item { SecretField(stringResource(R.string.newsapi_org_key), newsApi) { newsApi = it } }
@@ -314,6 +314,10 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
             SettingsPage("About", nav, vm) {
                 item { ListItem(headlineContent = { Text("BlindRSS $version") }, supportingContent = { Text(stringResource(R.string.about_tagline)) }, modifier = Modifier.semantics(mergeDescendants = true) {}) }
                 item { WideButton(stringResource(R.string.open_user_guide)) { nav.navigate("help") } }
+                item { val crash = remember { org.blindrss.android.CrashLog.read(ctx) }
+                    if (crash.isNotEmpty()) {
+                        ListItem(headlineContent = { Text("Crash report") }, supportingContent = { Text("BlindRSS crashed and saved a report. Open it to read or share it.") }, modifier = Modifier.semantics(mergeDescendants = true) {})
+                        WideButton("View crash report") { nav.navigate("crashreport") } } }
                 item { SwitchRow(stringResource(R.string.auto_update_check), autoCheck) { v -> scope.launch { s.setFlag("auto_update_check", v) } } }
                 item { WideButton(stringResource(R.string.check_for_updates)) { status = "Checking"; vm.checkAppUpdate(manual = true) { status = it } } }
                 if (pending != null) item { UpdateInstallerPanel(pending!!) { vm.dismissAppUpdate() } }
@@ -324,5 +328,26 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                     } else Note(stringResource(R.string.youtube_audio_needs_android_11)) }
                 item { Status(status) }
             } }
+    }
+}
+
+// Settings > About > Crash report: the uncaught exceptions CrashLog
+// recorded. Readable on screen, shareable, clearable — before 0.13.1 a
+// crash left no trace anywhere.
+@Composable
+fun CrashReportScreen(nav: NavController, vm: AppViewModel) {
+    val ctx = LocalContext.current
+    var report by remember { mutableStateOf(org.blindrss.android.CrashLog.read(ctx)) }
+    SettingsPage("Crash report", nav, vm) {
+        if (report.isEmpty()) {
+            item { Note("No crashes recorded.") }
+        } else {
+            item { WideButton("Share crash report") {
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report)
+                try { ctx.startActivity(Intent.createChooser(send, "Share crash report").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+            } }
+            item { WideButton("Clear crash report") { org.blindrss.android.CrashLog.clear(ctx); report = "" } }
+            item { Text(report, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall) }
+        }
     }
 }

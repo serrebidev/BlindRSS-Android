@@ -14,7 +14,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-private val Context.ds by preferencesDataStore("blindrss_settings")
+// The corruption handler matters (0.13.1): if the settings file is
+// damaged (classic case: power loss mid-write), DataStore throws a
+// CorruptionException from EVERY read. Several launch and composition
+// reads are unwrapped, so one damaged file crash-looped the app on
+// every launch until its data was cleared. Now a damaged file resets
+// settings to defaults and the app runs.
+private val Context.ds by preferencesDataStore("blindrss_settings",
+    corruptionHandler = androidx.datastore.core.handlers.ReplaceFileCorruptionHandler { emptyPreferences() })
 
 enum class ProviderType(val label: String) {
     LOCAL("This device"), MINIFLUX("Miniflux"), INOREADER("Inoreader"), THEOLDREADER("The Old Reader"), BAZQUX("BazQux"), FEEDBIN("Feedbin"),

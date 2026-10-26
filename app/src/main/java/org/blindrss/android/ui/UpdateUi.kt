@@ -38,7 +38,7 @@ fun UpdateInstallerPanel(info: AppUpdate.ReleaseInfo, onFinished: () -> Unit) {
         if (AppUpdate.canInstall(ctx)) { phase = "idle"; message = "Permission granted. Tap Download and install." }
         else message = "Install permission is still off for BlindRSS."
     }
-    fun install() { apk?.let { ctx.startActivity(AppUpdate.installIntent(ctx, it)); onFinished() } }
+    fun install() { apk?.let { try { ctx.startActivity(AppUpdate.installIntent(ctx, it)); onFinished() } catch (e: Exception) { phase = "error"; message = "Could not open the installer: ${e.message ?: "no installer found"}" } } }
     fun start() {
         if (!AppUpdate.canInstall(ctx)) { phase = "permission"; return }
         phase = "downloading"; progress = 0; message = ""

@@ -126,8 +126,8 @@ fun GoogleSignInScreen(nav: androidx.navigation.NavController, vm: AppViewModel)
             val cookies = android.webkit.CookieManager.getInstance().getCookie("https://groups.google.com") ?: ""
             if (cookies.isBlank()) { vm.announce("No Google session cookies found yet. Sign in first.") }
             else { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    val existing = vm.repo.settings.siteCookies()
-                    vm.repo.settings.setSiteCookies(if (existing.isBlank()) cookies else "$existing; $cookies") }
+                    try { val existing = vm.repo.settings.siteCookies()
+                    vm.repo.settings.setSiteCookies(if (existing.isBlank()) cookies else "$existing; $cookies") } catch (_: Exception) {} }
                 vm.announce("Google sign-in cookies saved"); nav.popBackStack() }
         }, Modifier.semantics { contentDescription = ctx.getString(R.string.save_sign_in_cookies) }) { Text(stringResource(R.string.save)) } }) }) { pad ->
         Column(Modifier.padding(pad)) {

@@ -147,12 +147,12 @@ private fun AudioOptions(vm: AppViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val ctx = LocalContext.current
         var silence by remember { mutableStateOf(true) }; var sponsor by remember { mutableStateOf(true) }
-        LaunchedEffect(Unit) { silence = vm.repo.settings.skipSilence.first(); sponsor = vm.repo.settings.sponsorBlock.first() }
+        LaunchedEffect(Unit) { try { silence = vm.repo.settings.skipSilence.first(); sponsor = vm.repo.settings.sponsorBlock.first() } catch (_: Exception) {} }
         Text("Audio", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(stringResource(R.string.skip_silence)); Switch(silence, { silence = it; vm.player.setSkipSilence(it) }, Modifier.semantics { contentDescription = ctx.getString(R.string.skip_silence) }) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(stringResource(R.string.sponsorblock_youtube)); Switch(sponsor, { sponsor = it; kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { vm.repo.settings.setSponsorBlock(it) } }, Modifier.semantics { contentDescription = ctx.getString(R.string.sponsorblock) }) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(stringResource(R.string.sponsorblock_youtube)); Switch(sponsor, { sponsor = it; kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + org.blindrss.android.CrashLog.handler(ctx)).launch { vm.repo.settings.setSponsorBlock(it) } }, Modifier.semantics { contentDescription = ctx.getString(R.string.sponsorblock) }) }
         var eqOn by remember { mutableStateOf(false) }; var bands by remember { mutableStateOf(List(5) { 0 }) }
-        LaunchedEffect(Unit) { eqOn = vm.repo.settings.eqEnabled.first(); val saved = vm.repo.settings.eqBands.first(); if (saved.isNotEmpty()) bands = (saved + List(5) { 0 }).take(5) }
+        LaunchedEffect(Unit) { try { eqOn = vm.repo.settings.eqEnabled.first(); val saved = vm.repo.settings.eqBands.first(); if (saved.isNotEmpty()) bands = (saved + List(5) { 0 }).take(5) } catch (_: Exception) {} }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(stringResource(R.string.equalizer)); Switch(eqOn, { eqOn = it; vm.player.applyEqualizer(it, bands.map { b -> b * 15 }) }, Modifier.semantics { contentDescription = ctx.getString(R.string.equalizer) }) }
         if (eqOn) bands.forEachIndexed { i, v -> Text("Band ${i + 1}: $v"); Slider(v.toFloat(), { nv -> bands = bands.toMutableList().also { it[i] = nv.toInt() }; vm.player.applyEqualizer(eqOn, bands.map { b -> b * 15 }) }, valueRange = -100f..100f, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Equalizer band ${i + 1}" }) }
         Text("Cast to Chromecast", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleSmall)

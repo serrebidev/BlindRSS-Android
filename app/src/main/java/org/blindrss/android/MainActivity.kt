@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val appVm = androidx.lifecycle.ViewModelProvider(this)[AppViewModel::class.java]
         vmRef = appVm
+        if (org.blindrss.android.CrashLog.read(this).isNotEmpty()) appVm.announce("BlindRSS crashed last time. The crash report is in Settings, About.")
         appVm.runStartupImports(this)
         handleOAuth(intent)
         if (savedInstanceState == null) {
@@ -88,7 +89,8 @@ class MainActivity : ComponentActivity() {
                         composable("player") { PlayerScreen(nav, vm) }
                         composable("settings") { SettingsScreen(nav, vm) }
                         composable("help") { HelpScreen(nav, vm) }
-                        composable("settings/provider/{type}") { ProviderSetupScreen(nav, vm, org.blindrss.android.settings.ProviderType.valueOf(it.arguments?.getString("type") ?: "MINIFLUX")) }
+                        composable("crashreport") { CrashReportScreen(nav, vm) }
+                        composable("settings/provider/{type}") { ProviderSetupScreen(nav, vm, runCatching { org.blindrss.android.settings.ProviderType.valueOf(it.arguments?.getString("type") ?: "MINIFLUX") }.getOrDefault(org.blindrss.android.settings.ProviderType.MINIFLUX)) }
                         composable("settings/{section}") { SettingsSectionScreen(nav, vm, it.arguments?.getString("section") ?: "") }
                         composable("categories") { CategoriesScreen(nav, vm) }
                         composable("discover") { DiscoverScreen(nav, vm) }

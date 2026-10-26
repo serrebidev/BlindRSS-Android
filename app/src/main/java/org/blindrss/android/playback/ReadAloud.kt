@@ -16,7 +16,7 @@ import kotlin.coroutines.resumeWithException
 // so speed, skip silence, sleep timer and screen-off listening all apply. When an article ends it is marked
 // read and the newest remaining unread article starts.
 class ReadAloud(private val ctx: Context, private val repo: Repository, private val player: PlayerController, private val announce: (String) -> Unit) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + org.blindrss.android.CrashLog.handler(ctx))
     private var tts: TextToSpeech? = null
     private var job: Job? = null
     @Volatile private var synthesizing = false

@@ -25,15 +25,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun addFeed(url: String, category: String = "Uncategorized") { viewModelScope.launch { try { val f = repo.addFeed(url, category); announce("Subscribed to ${f.title}") } catch (e: Exception) { announce("Error adding feed: ${e.message}") } } }
     // chime: the desktop app sounds a chime when a refresh the user started
     // completes; automatic refreshes (launch, background) stay silent.
-    fun refreshAll(chime: Boolean = true) { viewModelScope.launch { announce("Refreshing"); val r = repo.refreshAll(manual = true)
+    fun refreshAll(chime: Boolean = true) { viewModelScope.launch { try { announce("Refreshing"); val r = repo.refreshAll(manual = true)
         announce(buildString { append("Refresh complete. ${r.newArticles} new articles.")
             if (r.failedFeeds > 0) append(" ${r.failedFeeds} feeds with errors."); r.providerError?.let { append(" Sync failed: $it") } })
-        if (chime && repo.settings.refreshChime.first()) org.blindrss.android.playback.Chime.play(getApplication()) } }
+        if (chime && repo.settings.refreshChime.first()) org.blindrss.android.playback.Chime.play(getApplication()) } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Refresh failed: ${e.message}") } } }
     // Background sync is scheduled on every launch so it runs without a manual refresh first.
     // Miniflux sends saved articles to the read-later services set up on the server (Instapaper, Pocket, Wallabag...).
     val canSaveToIntegrations: StateFlow<Boolean> = repo.settings.provider.map { it == ProviderType.MINIFLUX }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     fun saveToIntegrations(a: ArticleEntity) { viewModelScope.launch { announce(try { repo.saveToIntegrations(a); "Saved: ${a.title}" } catch (e: Exception) { "Save failed: ${e.message}" }) } }
-    fun refreshOnLaunch() { viewModelScope.launch { SyncWorker.schedule(getApplication()); if (repo.settings.refreshOnStart.first()) refreshAll(chime = false) } }
+    fun refreshOnLaunch() { viewModelScope.launch { try { SyncWorker.schedule(getApplication()); if (repo.settings.refreshOnStart.first()) refreshAll(chime = false) } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e) } } }
     // ---- Self-update (GitHub releases) ----
     val appUpdate = MutableStateFlow<org.blindrss.android.update.AppUpdate.ReleaseInfo?>(null)
     fun dismissAppUpdate() { appUpdate.value = null }
@@ -98,10 +98,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         try { repo.updateFeed(f, title, category, url); announce("Saved ${title.trim()}"); onDone(null) }
         catch (e: Exception) { onDone(e.message ?: e.javaClass.simpleName) } } }
     fun deleteFeed(f: FeedEntity) { viewModelScope.launch { try { repo.deleteFeed(f); announce("Deleted feed ${f.title}") } catch (e: Exception) { announce("Could not delete ${f.title}: ${e.message}") } } }
-    fun toggleMute(f: FeedEntity) { viewModelScope.launch { repo.feeds.setMuted(f.id, !f.muted); announce(if (f.muted) "Notifications on for ${f.title}" else "Notifications muted for ${f.title}") } }
-    fun setRead(a: ArticleEntity, read: Boolean) { viewModelScope.launch { repo.articles.setRead(a.id, read); repo.pushRead(a, read); announce(if (read) "Marked read: ${a.title}" else "Marked unread: ${a.title}") } }
-    fun toggleFavorite(a: ArticleEntity) { viewModelScope.launch { repo.articles.setFavorite(a.id, !a.isFavorite); repo.pushFavorite(a, !a.isFavorite); announce(if (!a.isFavorite) "Favorited: ${a.title}" else "Removed favorite: ${a.title}") } }
-    fun deleteArticle(a: ArticleEntity) { viewModelScope.launch { repo.deleteArticle(a); announce("Deleted: ${a.title}. Available in Deleted Articles.") } }
+    fun toggleMute(f: FeedEntity) { viewModelScope.launch { try { repo.feeds.setMuted(f.id, !f.muted); announce(if (f.muted) "Notifications on for ${f.title}" else "Notifications muted for ${f.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not change notifications for ${f.title}") } } }
+    fun setRead(a: ArticleEntity, read: Boolean) { viewModelScope.launch { try { repo.articles.setRead(a.id, read); repo.pushRead(a, read); announce(if (read) "Marked read: ${a.title}" else "Marked unread: ${a.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not mark ${a.title}") } } }
+    fun toggleFavorite(a: ArticleEntity) { viewModelScope.launch { try { repo.articles.setFavorite(a.id, !a.isFavorite); repo.pushFavorite(a, !a.isFavorite); announce(if (!a.isFavorite) "Favorited: ${a.title}" else "Removed favorite: ${a.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not change favorite for ${a.title}") } } }
+    fun deleteArticle(a: ArticleEntity) { viewModelScope.launch { try { repo.deleteArticle(a); announce("Deleted: ${a.title}. Available in Deleted Articles.") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not delete ${a.title}: ${e.message}") } } }
     fun restoreDeleted(id: String) { viewModelScope.launch { repo.restoreDeleted(id); announce("Article restored") } }
     fun purgeDeleted(id: String) { viewModelScope.launch { repo.misc.purgeDeleted(id); announce("Article permanently deleted") } }
     fun purgeAllDeleted() { viewModelScope.launch { repo.misc.purgeAllDeleted(); announce("All deleted articles purged") } }
@@ -143,10 +143,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         play(a) }
     // Episodes, and pages yt-dlp can play (YouTube and similar) on supported devices.
     fun canPlay(a: ArticleEntity) = a.mediaUrl != null || (Ytdl.supported() && (isYouTube(a.url) || org.blindrss.android.feed.MediaSites.isPlayablePage(a.url)))
-    fun play(a: ArticleEntity) { viewModelScope.launch { player.play(a); announce(if (a.mediaUrl == null) "Loading audio: ${a.title}" else "Playing: ${a.title}") } }
-    fun playNext(a: ArticleEntity) { viewModelScope.launch { player.playNext(a); announce("Playing next: ${a.title}") } }
-    fun enqueue(a: ArticleEntity) { viewModelScope.launch { player.enqueue(a); announce("Added to Up next: ${a.title}") } }
-    fun deleteDownload(a: ArticleEntity) { viewModelScope.launch { Downloads.delete(repo, a.id); announce("Download deleted: ${a.title}") } }
+    fun play(a: ArticleEntity) { viewModelScope.launch { try { player.play(a); announce(if (a.mediaUrl == null) "Loading audio: ${a.title}" else "Playing: ${a.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Playback failed: ${e.message}") } } }
+    fun playNext(a: ArticleEntity) { viewModelScope.launch { try { player.playNext(a); announce("Playing next: ${a.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not play next: ${e.message}") } } }
+    fun enqueue(a: ArticleEntity) { viewModelScope.launch { try { player.enqueue(a); announce("Added to Up next: ${a.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not add to Up next: ${e.message}") } } }
+    fun deleteDownload(a: ArticleEntity) { viewModelScope.launch { try { Downloads.delete(repo, a.id); announce("Download deleted: ${a.title}") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Could not delete download: ${e.message}") } } }
     val downloadedIds: StateFlow<Set<String>> = repo.misc.observeDownloadIds().map { it.toSet() }.stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
     fun updateYtdl(cb: (String) -> Unit) { viewModelScope.launch { cb(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { Ytdl.updateNow(getApplication()) } catch (e: Exception) { "yt-dlp: ${e.message}" } }) } }
     fun ytdlVersion(cb: (String) -> Unit) { viewModelScope.launch { cb(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { Ytdl.version(getApplication()) } catch (e: Exception) { "unknown" } }) } }
@@ -166,7 +166,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun isYouTube(url: String): Boolean = Regex("youtube\\.com|youtu\\.be", RegexOption.IGNORE_CASE).containsMatchIn(url)
     // Single entry point for opening an article, honoring the open-mode settings.
     fun openArticle(ctx: android.content.Context, a: ArticleEntity, nav: androidx.navigation.NavController) {
-        viewModelScope.launch {
+        viewModelScope.launch { try {
             if (!a.isRead) { repo.articles.setRead(a.id, true); repo.pushRead(a, true) }
             if (isYouTube(a.url)) {
                 when (repo.settings.youtubeOpenMode.first()) {
@@ -181,6 +181,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 "FULL_TEXT", "FEED_TEXT" -> nav.navigate("reader/${android.net.Uri.encode(a.id)}")
                 else -> launchBrowser(ctx, a.url)
             }
+            } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e) }
         }
     }
     fun launchBrowser(ctx: android.content.Context, url: String) { try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) { announce("No browser found") } }
@@ -202,8 +203,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val discoverPreview = MutableStateFlow<Pair<org.blindrss.android.discovery.DiscoveredSource, List<String>>?>(null)
     private var catalogue: List<org.blindrss.android.discovery.DiscoveredSource> = emptyList()
     private var discoverJob: kotlinx.coroutines.Job? = null
-    fun loadCatalogue() { viewModelScope.launch { catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication()); catalogue = org.blindrss.android.discovery.AwesomeCatalogue.refreshIfStale(getApplication()) } }
-    fun browseDiscover(category: String) { viewModelScope.launch {
+    fun loadCatalogue() { viewModelScope.launch { try { catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication()); catalogue = org.blindrss.android.discovery.AwesomeCatalogue.refreshIfStale(getApplication()) } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e) } } }
+    fun browseDiscover(category: String) { viewModelScope.launch { try {
         val country = repo.settings.discoveryCountry.first(); val lang = repo.settings.discoveryLanguage.first()
         val city = repo.settings.discoveryCity.first(); val region = repo.settings.discoveryRegion.first()
         if (catalogue.isEmpty()) catalogue = org.blindrss.android.discovery.AwesomeCatalogue.loadCached(getApplication())
@@ -211,7 +212,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, "", "", country, "")
         else org.blindrss.android.discovery.AwesomeCatalogue.search(catalogue, "", category, "", "")
         val google = org.blindrss.android.discovery.GoogleNewsUrls.sourcesFor(category, country, lang, city, region)
-        setDiscoverResults(google + local) } }
+        setDiscoverResults(google + local) } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("Discovery failed: ${e.message}") } } }
     fun searchDiscover(query: String) {
         discoverJob?.cancel()
         discoverJob = viewModelScope.launch {
@@ -262,15 +263,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun exchangeOAuth(code: String) { viewModelScope.launch { try { announce(repo.exchangeInoreaderCode(code)); val s = repo.syncProvider(); announce(s) } catch (e: Exception) { announce("Inoreader connect failed: ${e.message}") } } }
     val castDevices = MutableStateFlow<List<org.blindrss.android.cast.DlnaDevice>>(emptyList())
     var castTarget: org.blindrss.android.cast.DlnaDevice? = null
-    fun discoverCast(ctx: android.content.Context) { viewModelScope.launch { announce("Searching for DLNA renderers"); castDevices.value = org.blindrss.android.cast.Dlna.discover(ctx); announce("Found ${castDevices.value.size} DLNA devices") } }
+    fun discoverCast(ctx: android.content.Context) { viewModelScope.launch { try { announce("Searching for DLNA renderers"); castDevices.value = org.blindrss.android.cast.Dlna.discover(ctx); announce("Found ${castDevices.value.size} DLNA devices") } catch (e: Exception) { org.blindrss.android.CrashLog.record(getApplication(), e); announce("DLNA search failed: ${e.message}") } } }
     // Google Cast session start: hand it whatever is playing locally.
     fun castToGoogleCast(session: com.google.android.gms.cast.framework.CastSession) { viewModelScope.launch {
         val id = player.currentId() ?: return@launch announce("Nothing playing to cast")
         val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast")
         val url = a.mediaUrl ?: return@launch announce("Current article has no direct media to cast")
-        val ok = org.blindrss.android.cast.GoogleCast.load(session, url, a.title, org.blindrss.android.cast.GoogleCast.contentTypeFor(url, a.mediaType))
+        val ok = try { org.blindrss.android.cast.GoogleCast.load(session, url, a.title, org.blindrss.android.cast.GoogleCast.contentTypeFor(url, a.mediaType)) } catch (_: Exception) { false }
         if (ok) { player.exo.pause(); announce("Casting ${a.title}") } else announce("Cast failed") } }
-    fun castCurrent(device: org.blindrss.android.cast.DlnaDevice) { viewModelScope.launch { val id = player.currentId() ?: return@launch announce("Nothing playing to cast"); val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast"); val url = a.mediaUrl ?: return@launch announce("Current article has no media"); val ok = org.blindrss.android.cast.Dlna.play(device, url, a.title); castTarget = device; player.exo.pause(); announce(if (ok) "Casting ${a.title} to ${device.name}" else "Cast failed to ${device.name}") } }
+    fun castCurrent(device: org.blindrss.android.cast.DlnaDevice) { viewModelScope.launch { val id = player.currentId() ?: return@launch announce("Nothing playing to cast"); val a = repo.articles.byId(id) ?: return@launch announce("Nothing playing to cast"); val url = a.mediaUrl ?: return@launch announce("Current article has no media"); val ok = try { org.blindrss.android.cast.Dlna.play(device, url, a.title) } catch (_: Exception) { false }; castTarget = device; player.exo.pause(); announce(if (ok) "Casting ${a.title} to ${device.name}" else "Cast failed to ${device.name}") } }
     fun searchDirectory(q: String, cb: (List<org.blindrss.android.feed.SearchHit>) -> Unit) { viewModelScope.launch { try { cb(org.blindrss.android.feed.DiscoverySearch.search(q)) } catch (e: Exception) { announce("Directory search failed: ${e.message}"); cb(emptyList()) } } }
     // One-time import files pushed to the app's external files dir (desktop account migration).
     fun runStartupImports(ctx: android.content.Context) { viewModelScope.launch {
