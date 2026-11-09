@@ -12,14 +12,17 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 
-// Self-update from this repo's GitHub releases (Brandon's ask): check the
+// Self-update from this repo's Forgejo releases (Brandon's ask): check the
 // latest release, compare with the installed version, download the release
 // APK and hand it to the Android installer. Releases are signed with the
 // repo's own key (see app/build.gradle.kts), so an update installs over the
 // current build. Parsing and version comparison are pure and unit-tested.
+// Forgejo's /releases/latest JSON is GitHub-shaped (tag_name, html_url,
+// assets with name/size/browser_download_url); its assets carry no digest
+// field, so no digest check is possible or attempted.
 object AppUpdate {
-    const val RELEASES_API = "https://api.github.com/repos/serrebidev/BlindRSS-Android/releases/latest"
-    const val RELEASES_PAGE = "https://github.com/serrebidev/BlindRSS-Android/releases/latest"
+    const val RELEASES_API = "https://git.serrebiradio.com/api/v1/repos/serrebi/blindRSS-Android/releases/latest"
+    const val RELEASES_PAGE = "https://git.serrebiradio.com/serrebi/blindRSS-Android/releases/latest"
 
     data class ReleaseInfo(val version: String, val apkUrl: String, val apkName: String, val sizeBytes: Long, val pageUrl: String)
 

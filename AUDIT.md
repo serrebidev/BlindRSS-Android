@@ -34,7 +34,7 @@ Providers audited from `providers/` (`base.py`, `local.py`, `miniflux.py`, `inor
 | Casting | Done (DLNA) | SSDP discovery + UPnP AVTransport SOAP play/stop in Player (`cast/Dlna.kt`); Chromecast/AirPlay need Play Services/proprietary protocols |
 | Equalizer, silence skip, SponsorBlock | Done | AndroidFX Equalizer (5-band sliders, persisted), ExoPlayer skipSilence, SponsorBlock API skip for YouTube articles (sponsor/selfpromo/interaction) |
 | Tray, hotkeys, cookies/captcha | Desktop-only | Windows concepts; replaced by notifications, TalkBack actions |
-| Updater (self-update) | Done (v0.11.0) | `update/AppUpdate.kt`: checks this repo's GitHub releases (on start, throttled to daily, toggle in Settings > About), announces via a TalkBack-friendly dialog on Home and a panel in About, downloads the release APK with spoken progress, hands it to the Android installer through a FileProvider URI with the standard unknown-apps permission flow. Releases use the repo's own signing config, so updates install over the current build |
+| Updater (self-update) | Done (v0.11.0) | `update/AppUpdate.kt`: checks this repo's Forgejo releases (on start, throttled to daily, toggle in Settings > About), announces via a TalkBack-friendly dialog on Home and a panel in About, downloads the release APK with spoken progress, hands it to the Android installer through a FileProvider URI with the standard unknown-apps permission flow. Releases use the repo's own signing config, so updates install over the current build |
 
 ## Provider matrix
 

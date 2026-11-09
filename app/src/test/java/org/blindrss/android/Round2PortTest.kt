@@ -22,15 +22,21 @@ class Round2PortTest {
         assertFalse(AppUpdate.isNewer("0.10.0", "0.10.0"))
     }
     @Test fun releaseParsing() {
-        val json = """{"tag_name":"v0.11.0","html_url":"https://github.com/x/releases/v0.11.0","assets":[
-            {"name":"notes.txt","browser_download_url":"https://x/notes.txt","size":10},
-            {"name":"BlindRSS-Android-v0.11.0.apk","browser_download_url":"https://x/app.apk","size":12345}]}"""
+        // Forgejo /releases/latest shape: GitHub-like tag_name/assets, but
+        // assets carry no digest field.
+        val json = """{"tag_name":"v0.13.3","html_url":"https://git.serrebiradio.com/serrebi/blindRSS-Android/releases/tag/v0.13.3","assets":[
+            {"id":1,"name":"notes.txt","size":10,"download_count":0,"uuid":"00000000-0000-0000-0000-000000000000","browser_download_url":"https://git.serrebiradio.com/x/notes.txt","type":"attachment"},
+            {"id":2,"name":"BlindRSS-Android-v0.13.3.apk","size":12345,"download_count":0,"uuid":"31650148-0548-476c-8733-1f9196bdaf1a","browser_download_url":"https://git.serrebiradio.com/serrebi/blindRSS-Android/releases/download/v0.13.3/BlindRSS-Android-v0.13.3.apk","type":"attachment"}]}"""
         val info = AppUpdate.parseRelease(json)!!
-        assertEquals("0.11.0", info.version)
-        assertEquals("https://x/app.apk", info.apkUrl)
+        assertEquals("0.13.3", info.version)
+        assertEquals("https://git.serrebiradio.com/serrebi/blindRSS-Android/releases/download/v0.13.3/BlindRSS-Android-v0.13.3.apk", info.apkUrl)
         assertEquals(12345L, info.sizeBytes)
         assertNull(AppUpdate.parseRelease("""{"tag_name":"v1.0.0","assets":[]}"""))
         assertNull(AppUpdate.parseRelease("not json"))
+    }
+    @Test fun updaterHitsForgejo() {
+        assertEquals("https://git.serrebiradio.com/api/v1/repos/serrebi/blindRSS-Android/releases/latest", AppUpdate.RELEASES_API)
+        assertEquals("https://git.serrebiradio.com/serrebi/blindRSS-Android/releases/latest", AppUpdate.RELEASES_PAGE)
     }
     // ---- video search parsing ----
     @Test fun flatSearchEntries() {

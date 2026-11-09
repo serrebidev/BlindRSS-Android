@@ -12,9 +12,15 @@ Build on Windows from the repo root:
   `e686d194cd9b6141b605ec8b7e992ed88a112c1113e13725bdeaa5ee88bf10ca`. Check it
   with `apksigner verify --print-certs` before publishing; an APK built with a
   different key cannot update an installed copy.
-- Release: tag `vX.Y.Z` from `versionName`, then `gh release create vX.Y.Z` with
-  the asset named `BlindRSS-Android-vX.Y.Z.apk` and title
-  `BlindRSS for Android vX.Y.Z`.
+- Release on Forgejo (`serrebi/blindRSS-Android` on `git.serrebiradio.com`):
+  push the branch first, then tag `vX.Y.Z` from `versionName` and push the
+  tag (never force-push). Create the release via the API with BOM-less JSON
+  (`POST /api/v1/repos/serrebi/blindRSS-Android/releases`, `tag_name`,
+  title `BlindRSS for Android vX.Y.Z`), then upload the APK with the
+  multipart field name `attachment`
+  (`POST .../releases/<id>/assets?name=BlindRSS-Android-vX.Y.Z.apk`).
+  The in-app updater reads `.../releases/latest` from that API; Forgejo
+  assets carry no digest field, so no digest check is possible.
 - From WSL (Muse Code CLI), there is no JDK in the distro. Run the same Windows
   build through interop rather than a Linux Gradle build, which would also
   produce a differently signed APK:
