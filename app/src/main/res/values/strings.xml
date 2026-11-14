@@ -165,6 +165,12 @@
     <string name="search_for_dlna_devices">Search for DLNA devices</string>
     <string name="back_10_seconds">Back 10 seconds</string>
     <string name="forward_30_seconds">Forward 30 seconds</string>
+    <string name="back_60_seconds">Back 60 seconds</string>
+    <string name="forward_60_seconds">Forward 60 seconds</string>
+    <string name="jump_to_time">Jump to Time</string>
+    <string name="seek_step">Seek step</string>
+    <string name="jump_hint">Enter time as hours:minutes:seconds, minutes:seconds or seconds</string>
+    <string name="invalid_time">Invalid time. Use e.g. 1:23:45, 1:23 or 90.</string>
     <string name="minimize_player">Minimize player</string>
     <string name="position">Position</string>
     <string name="previous_episode">Previous episode</string>

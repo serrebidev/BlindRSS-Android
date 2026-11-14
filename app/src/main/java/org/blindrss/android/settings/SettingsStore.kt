@@ -79,6 +79,10 @@ class SettingsStore(private val ctx: Context) {
     val minifluxCursor: Flow<Long> = ctx.ds.data.map { it[longPreferencesKey("miniflux_cursor")] ?: 0L }
     suspend fun setMinifluxCursor(v: Long) { ctx.ds.edit { it[longPreferencesKey("miniflux_cursor")] = v } }
     suspend fun setSpeed(v: Float) { ctx.ds.edit { it[PLAYBACK_SPEED] = v } }
+    // User-configurable seek step in milliseconds (the Back/Forward buttons
+    // and headset seek buttons); the fixed 60-second step is separate.
+    val seekIntervalMs: Flow<Long> = ctx.ds.data.map { it[longPreferencesKey("seek_interval_ms")] ?: 10_000L }
+    suspend fun setSeekIntervalMs(v: Long) { ctx.ds.edit { it[longPreferencesKey("seek_interval_ms")] = v.coerceIn(1_000L, 600_000L) } }
     suspend fun setSyncInterval(v: Int) { ctx.ds.edit { it[SYNC_INTERVAL_MIN] = v } }
     suspend fun setNotify(v: Boolean) { ctx.ds.edit { it[NOTIFY_NEW] = v } }
     // Per-provider saved accounts, so switching providers keeps each login.

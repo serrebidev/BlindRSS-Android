@@ -31,6 +31,8 @@ private fun spoken(ms: Long): String { val s = ms / 1000; val h = s / 3600; val 
 fun MiniPlayer(nav: NavController, vm: AppViewModel) {
     val ctx = LocalContext.current
     val title by vm.player.title.collectAsState(); val playing by vm.player.playing.collectAsState()
+    val seekMs by vm.player.seekMs.collectAsState()
+    val seekSecs = seekMs / 1000
     val route = nav.currentBackStackEntryAsState().value?.destination?.route
     if (title.isBlank() || route == "player") return
     Surface(tonalElevation = 3.dp, shadowElevation = 3.dp) {
@@ -40,9 +42,9 @@ fun MiniPlayer(nav: NavController, vm: AppViewModel) {
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                 Text(if (playing) "Playing" else "Paused", style = MaterialTheme.typography.labelSmall)
             }
-            IconButton(onClick = { vm.player.back() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back_10_seconds) }) { Icon(Icons.Filled.Replay10, null) }
+            IconButton(onClick = { vm.player.back() }, Modifier.semantics { contentDescription = "Back $seekSecs seconds" }) { Icon(Icons.Filled.Replay10, null) }
             IconButton(onClick = { vm.player.toggle() }, Modifier.semantics { contentDescription = if (playing) "Pause" else "Play" }) { Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null) }
-            IconButton(onClick = { vm.player.forward() }, Modifier.semantics { contentDescription = ctx.getString(R.string.forward_30_seconds) }) { Icon(Icons.Filled.Forward30, null) }
+            IconButton(onClick = { vm.player.forward() }, Modifier.semantics { contentDescription = "Forward $seekSecs seconds" }) { Icon(Icons.Filled.Forward30, null) }
         }
     }
 }
@@ -54,6 +56,8 @@ fun PlayerScreen(nav: NavController, vm: AppViewModel) {
     val p = vm.player
     val title by p.title.collectAsState(); val playing by p.playing.collectAsState(); val speed by p.speed.collectAsState()
     val queue by p.queue.collectAsState(); val index by p.index.collectAsState(); val error by p.error.collectAsState()
+    val seekMs by p.seekMs.collectAsState(); val seekSecs = seekMs / 1000
+    var showJump by remember { mutableStateOf(false) }; var jumpText by remember { mutableStateOf("") }; var jumpError by remember { mutableStateOf("") }
     val sleepAt by p.sleepAt.collectAsState(); val stopAtEnd by p.stopAtEnd.collectAsState()
     val downloads by remember { vm.repo.misc.observeDownloaded() }.collectAsState(emptyList())
     var pos by remember { mutableStateOf(0L) }; var dur by remember { mutableStateOf(0L) }
@@ -72,10 +76,15 @@ fun PlayerScreen(nav: NavController, vm: AppViewModel) {
             }
             item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 IconButton(onClick = { p.previousEpisode() }, Modifier.semantics { contentDescription = ctx.getString(R.string.previous_episode) }) { Icon(Icons.Filled.SkipPrevious, null) }
-                IconButton(onClick = { p.back() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back_10_seconds) }) { Icon(Icons.Filled.Replay10, null) }
+                IconButton(onClick = { p.back() }, Modifier.semantics { contentDescription = "Back $seekSecs seconds" }) { Icon(Icons.Filled.Replay10, null) }
                 FilledIconButton(onClick = { p.toggle() }, Modifier.size(56.dp).semantics { contentDescription = if (playing) "Pause" else "Play" }) { Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null) }
-                IconButton(onClick = { p.forward() }, Modifier.semantics { contentDescription = ctx.getString(R.string.forward_30_seconds) }) { Icon(Icons.Filled.Forward30, null) }
+                IconButton(onClick = { p.forward() }, Modifier.semantics { contentDescription = "Forward $seekSecs seconds" }) { Icon(Icons.Filled.Forward30, null) }
                 IconButton(onClick = { p.nextEpisode() }, Modifier.semantics { contentDescription = ctx.getString(R.string.next_episode) }) { Icon(Icons.Filled.SkipNext, null) }
+            } }
+            item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                OutlinedButton({ p.back60() }, Modifier.semantics { contentDescription = ctx.getString(R.string.back_60_seconds) }) { Text("Back 60s") }
+                OutlinedButton({ p.forward60() }, Modifier.semantics { contentDescription = ctx.getString(R.string.forward_60_seconds) }) { Text("Forward 60s") }
+                OutlinedButton({ showJump = true; jumpError = "" }, Modifier.semantics { contentDescription = ctx.getString(R.string.jump_to_time) }) { Text(stringResource(R.string.jump_to_time)) }
             } }
             if (chapters.isNotEmpty()) item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton({ p.prevChapter() }, Modifier.weight(1f)) { Text(stringResource(R.string.previous_chapter)) }
@@ -107,6 +116,21 @@ fun PlayerScreen(nav: NavController, vm: AppViewModel) {
                 ActionListItem(a.title, if (a.isRead) "Played" else "Not played", "Downloaded: ${a.title}. Double tap to play. Double tap and hold for actions.", onOpen = { vm.play(a) },
                     actions = listOf("Play" to { vm.play(a) }, "Add to Up next" to { vm.enqueue(a) }, "Delete download" to { vm.deleteDownload(a) })) }
             item { AudioOptions(vm) }
+            if (showJump) item {
+                AlertDialog(onDismissRequest = { showJump = false }, title = { Text(stringResource(R.string.jump_to_time)) },
+                    text = {
+                        Column {
+                            OutlinedTextField(jumpText, { jumpText = it; jumpError = "" }, Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.jump_hint)) }, singleLine = true)
+                            if (jumpError.isNotEmpty()) Text(jumpError, color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton({ val ms = org.blindrss.android.playback.parseJumpToMs(jumpText)
+                            if (ms != null) { p.jumpTo(ms); showJump = false } else jumpError = ctx.getString(R.string.invalid_time) }) { Text("Go") }
+                    },
+                    dismissButton = { TextButton({ showJump = false }) { Text("Cancel") } })
+            }
         }
     }
 }

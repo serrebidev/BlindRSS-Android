@@ -47,6 +47,25 @@ class PlaybackService : MediaSessionService() {
 
 data class QueueEntry(val articleId: String, val title: String)
 
+/** The fixed large seek step in milliseconds (60 seconds). */
+const val SEEK_BIG_MS = 60_000L
+
+/** Parse a "jump to time" entry into milliseconds: plain seconds ("90"),
+ * mm:ss ("1:23") or h:mm:ss ("1:23:45"). Null on invalid input. */
+fun parseJumpToMs(text: String?): Long? {
+    val t = (text ?: "").trim()
+    if (t.isEmpty()) return null
+    val parts = t.split(":")
+    if (parts.size > 3) return null
+    var total = 0L
+    for (part in parts) {
+        val v = part.trim().toLongOrNull() ?: return null
+        if (v < 0) return null
+        total = total * 60 + v
+    }
+    return total * 1000
+}
+
 // One per process (the service and every screen share it). The ExoPlayer playlist is the Up next queue; it is
 // saved on every change and restored, paused, at the next launch. Positions are saved while playing.
 class PlayerController private constructor(private val ctx: Context, private val repo: Repository) {
@@ -73,6 +92,7 @@ class PlayerController private constructor(private val ctx: Context, private val
     private val _title = MutableStateFlow(""); val title: StateFlow<String> = _title
     private val _playing = MutableStateFlow(false); val playing: StateFlow<Boolean> = _playing
     private val _speed = MutableStateFlow(1f); val speed: StateFlow<Float> = _speed
+    private val _seekMs = MutableStateFlow(10_000L); val seekMs: StateFlow<Long> = _seekMs
     private val _sleepAt = MutableStateFlow(0L); val sleepAt: StateFlow<Long> = _sleepAt
     private val _stopAtEnd = MutableStateFlow(false); val stopAtEnd: StateFlow<Boolean> = _stopAtEnd
     private val _queue = MutableStateFlow<List<QueueEntry>>(emptyList()); val queue: StateFlow<List<QueueEntry>> = _queue
@@ -117,6 +137,7 @@ class PlayerController private constructor(private val ctx: Context, private val
             }
         })
         scope.launch { try { exo.skipSilenceEnabled = repo.settings.skipSilence.first(); setSpeed(repo.settings.playbackSpeed.first())
+            applySeekInterval(repo.settings.seekIntervalMs.first())
             val bands = repo.settings.eqBands.first(); val enabled = repo.settings.eqEnabled.first()
             if (enabled || bands.isNotEmpty()) applyEqualizer(enabled, bands) } catch (_: Exception) {}
             restoreQueue() }
@@ -216,8 +237,19 @@ class PlayerController private constructor(private val ctx: Context, private val
         } catch (_: Exception) {}
     }
     fun toggle() { connect(); if (exo.isPlaying) exo.pause() else { if (exo.playbackState == Player.STATE_IDLE) exo.prepare(); exo.play() } }
-    fun back() = exo.seekBack()
-    fun forward() = exo.seekForward()
+    fun back() = exo.seekTo((exo.currentPosition - _seekMs.value).coerceAtLeast(0))
+    fun forward() { val d = exo.duration.coerceAtLeast(0); val t = exo.currentPosition + _seekMs.value; exo.seekTo(if (d > 0) minOf(t, d) else t) }
+    /** Apply the user-configured seek step and save it. */
+    fun applySeekInterval(ms: Long) {
+        val v = ms.coerceIn(1_000L, 600_000L)
+        _seekMs.value = v
+        scope.launch { repo.settings.setSeekIntervalMs(v) }
+    }
+    /** Fixed 60-second steps, independent of the configured step. */
+    fun back60() = exo.seekTo((exo.currentPosition - SEEK_BIG_MS).coerceAtLeast(0))
+    fun forward60() { val d = exo.duration.coerceAtLeast(0); val t = exo.currentPosition + SEEK_BIG_MS; exo.seekTo(if (d > 0) minOf(t, d) else t) }
+    /** Jump to an absolute position (the Jump to Time dialog). */
+    fun jumpTo(ms: Long) = exo.seekTo(ms.coerceAtLeast(0))
     fun nextEpisode() { if (exo.hasNextMediaItem()) exo.seekToNextMediaItem() }
     fun previousEpisode() = exo.seekToPreviousMediaItem()
     fun seekTo(ms: Long) = exo.seekTo(ms)

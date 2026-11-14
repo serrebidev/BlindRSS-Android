@@ -289,9 +289,10 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                         perm.launch(android.Manifest.permission.POST_NOTIFICATIONS) } }
                 item { Status(status) }
             } }
-        "playback" -> { val speed by s.playbackSpeed.collectAsState(1f); val silence by s.skipSilence.collectAsState(true); val sponsor by s.sponsorBlock.collectAsState(true); val catDl by s.categoryDownloads.collectAsState(false)
+        "playback" -> { val speed by s.playbackSpeed.collectAsState(1f); val silence by s.skipSilence.collectAsState(true); val sponsor by s.sponsorBlock.collectAsState(true); val catDl by s.categoryDownloads.collectAsState(false); val seekMs by s.seekIntervalMs.collectAsState(10_000L)
             SettingsPage("Playback", nav, vm) {
                 item { Choices(stringResource(R.string.default_speed), listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f).map { it to "${it}x" }, speed) { vm.player.setSpeed(it); scope.launch { s.setSpeed(it) } } }
+                item { Choices(stringResource(R.string.seek_step), listOf(10_000L, 15_000L, 30_000L, 60_000L, 90_000L, 120_000L).map { it to "${it / 1000} seconds" }, seekMs) { vm.player.applySeekInterval(it) } }
                 item { Heading(stringResource(R.string.audio)) }
                 item { SwitchRow(stringResource(R.string.skip_silence), silence) { vm.player.setSkipSilence(it) } }
                 item { SwitchRow(stringResource(R.string.sponsorblock), sponsor, "Skips sponsor segments in YouTube videos.") { scope.launch { s.setSponsorBlock(it) } } }
