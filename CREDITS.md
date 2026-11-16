@@ -8,3 +8,12 @@ Third-party projects it uses:
 - Room, WorkManager, and Media3 ExoPlayer (Jetpack libraries), plus OkHttp and jsoup for provider sync and Readability-style full-text extraction.
 
 Questions and bug reports are welcome in the [SerrebiProjects Telegram group](https://t.me/SerrebiProjects). More serrebi projects: [projects.serrebiradio.com](https://projects.serrebiradio.com).
+
+
+## About this project
+
+- GitHub profile: [serrebidev](https://github.com/serrebidev)
+- Repository (GitHub): [https://github.com/serrebidev/BlindRSS-Android](https://github.com/serrebidev/BlindRSS-Android)
+- Repository (Forgejo): [https://git.serrebiradio.com/serrebi/BlindRSS-Android](https://git.serrebiradio.com/serrebi/BlindRSS-Android)
+- Projects site: [projects.serrebiradio.com](https://projects.serrebiradio.com)
+- Questions and bug reports: [SerrebiProjects Telegram group](https://t.me/SerrebiProjects)
