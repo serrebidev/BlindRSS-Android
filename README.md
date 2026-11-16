@@ -3,6 +3,12 @@
 TalkBack-first Android port of desktop BlindRSS (Python/wxPython v2.3.9).
 Kotlin + Jetpack Compose, Room, WorkManager, Media3 ExoPlayer. minSdk 26, targetSdk 35.
 
+[![Join SerrebiProjects on Telegram](https://img.shields.io/badge/Telegram-SerrebiProjects-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SerrebiProjects)
+
+**Questions, bugs, or release news?** Join the [SerrebiProjects Telegram group](https://t.me/SerrebiProjects), the fastest place to get help.
+
+More serrebi projects: [projects.serrebiradio.com](https://projects.serrebiradio.com)
+
 See [AUDIT.md](AUDIT.md) for the full feature/provider matrix, accessibility notes, and known gaps.
 
 ## Build
@@ -35,3 +41,7 @@ Build: clone with `--recursive` (or run `git submodule update --init`); yt-dlp s
 
 Settings → Add provider → pick one → enter credentials → Sign in. The login is tested before anything is saved; a first sync runs after.
 Credentials are stored encrypted (Android Keystore AES-GCM). Inoreader: paste an OAuth access token (App ID/Key fields provided).
+
+## Credits
+
+See [CREDITS.md](CREDITS.md) for where the ideas behind this project came from, and the third-party projects it builds on.
