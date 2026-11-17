@@ -315,6 +315,13 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
             SettingsPage("About", nav, vm) {
                 item { ListItem(headlineContent = { Text("BlindRSS $version") }, supportingContent = { Text(stringResource(R.string.about_tagline)) }, modifier = Modifier.semantics(mergeDescendants = true) {}) }
                 item { WideButton(stringResource(R.string.open_user_guide)) { nav.navigate("help") } }
+                item { for ((label, url) in listOf(
+                    "GitHub: serrebidev/BlindRSS-Android" to "https://github.com/serrebidev/BlindRSS-Android",
+                    "Forgejo: serrebi/BlindRSS-Android" to "https://git.serrebiradio.com/serrebi/BlindRSS-Android",
+                    "Projects: projects.serrebiradio.com" to "https://projects.serrebiradio.com",
+                    "Telegram: SerrebiProjects" to "https://t.me/SerrebiProjects",
+                    "Full credits (CREDITS.md)" to "https://git.serrebiradio.com/serrebi/BlindRSS-Android/src/branch/main/CREDITS.md",
+                )) WideButton(label) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
                 item { val crash = remember { org.blindrss.android.CrashLog.read(ctx) }
                     if (crash.isNotEmpty()) {
                         ListItem(headlineContent = { Text("Crash report") }, supportingContent = { Text("BlindRSS crashed and saved a report. Open it to read or share it.") }, modifier = Modifier.semantics(mergeDescendants = true) {})
