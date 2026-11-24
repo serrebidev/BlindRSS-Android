@@ -30,4 +30,7 @@
     <string name="notifications">Уведомления</string>
     <string name="downloads">Загрузки</string>
     <string name="equalizer">Эквалайзер</string>
+    <string name="report_issue">Сообщить о проблеме на GitHub</string>
+    <string name="report_issue_summary">Заголовок</string>
+    <string name="report_issue_details">Описание</string>
 </resources>

@@ -198,4 +198,7 @@
     <string name="speech_favorite">Favorite.</string>
     <string name="speech_has_media">Has media.</string>
     <string name="speech_untitled">(untitled)</string>
+    <string name="report_issue">Report an issue on GitHub</string>
+    <string name="report_issue_summary">Title</string>
+    <string name="report_issue_details">Description</string>
 </resources>

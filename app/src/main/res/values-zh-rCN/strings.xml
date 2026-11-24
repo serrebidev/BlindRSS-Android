@@ -29,4 +29,7 @@
     <string name="notifications">通知</string>
     <string name="downloads">下载</string>
     <string name="equalizer">均衡器</string>
+    <string name="report_issue">在 GitHub 上报告问题</string>
+    <string name="report_issue_summary">标题</string>
+    <string name="report_issue_details">描述</string>
 </resources>

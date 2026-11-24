@@ -29,4 +29,7 @@
     <string name="notifications">Benachrichtigungen</string>
     <string name="downloads">Downloads</string>
     <string name="equalizer">Equalizer</string>
+    <string name="report_issue">Problem auf GitHub melden</string>
+    <string name="report_issue_summary">Titel</string>
+    <string name="report_issue_details">Beschreibung</string>
 </resources>

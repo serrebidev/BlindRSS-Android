@@ -322,6 +322,14 @@ fun SettingsSectionScreen(nav: NavController, vm: AppViewModel, section: String)
                     "Telegram: SerrebiProjects" to "https://t.me/SerrebiProjects",
                     "Full credits (CREDITS.md)" to "https://git.serrebiradio.com/serrebi/BlindRSS-Android/src/branch/main/CREDITS.md",
                 )) WideButton(label) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
+                item { var summary by remember { mutableStateOf("") }; var details by remember { mutableStateOf("") }
+                    Field(stringResource(R.string.report_issue_summary), summary) { summary = it }
+                    OutlinedTextField(details, { details = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), label = { Text(stringResource(R.string.report_issue_details)) }, minLines = 4)
+                    WideButton(stringResource(R.string.report_issue), enabled = summary.isNotBlank()) {
+                        val device = "Android ${android.os.Build.VERSION.RELEASE} ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+                        val url = org.blindrss.android.ReportIssue.url(summary, details, "BlindRSS $version on $device")
+                        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                    } }
                 item { val crash = remember { org.blindrss.android.CrashLog.read(ctx) }
                     if (crash.isNotEmpty()) {
                         ListItem(headlineContent = { Text("Crash report") }, supportingContent = { Text("BlindRSS crashed and saved a report. Open it to read or share it.") }, modifier = Modifier.semantics(mergeDescendants = true) {})

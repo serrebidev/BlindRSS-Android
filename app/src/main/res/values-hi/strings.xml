@@ -29,4 +29,7 @@
     <string name="notifications">सूचनाएं</string>
     <string name="downloads">डाउनलोड</string>
     <string name="equalizer">इक्वलाइज़र</string>
+    <string name="report_issue">GitHub पर समस्या की रिपोर्ट करें</string>
+    <string name="report_issue_summary">शीर्षक</string>
+    <string name="report_issue_details">विवरण</string>
 </resources>

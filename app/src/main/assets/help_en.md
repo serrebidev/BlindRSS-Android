@@ -127,3 +127,8 @@ Google's default receiver, alongside DLNA.
 BlindRSS is free and open source under the MIT license. Settings, About,
 checks for updates and updates the built-in yt-dlp. Questions and release
 news are in the SerrebiProjects Telegram group.
+
+To report a problem or suggest an idea, type a title and a description under
+Settings, About, then press Report an issue on GitHub. Your browser opens
+GitHub's new issue page with both filled in and your BlindRSS version and
+device added. Sign in on GitHub and press Create.
