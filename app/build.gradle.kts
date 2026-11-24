@@ -15,6 +15,8 @@ android {
         versionName = "0.14.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // GitHub runners: the owner key sits outside ~/.android, so the release workflow names it.
+    signingConfigs { getByName("debug") { System.getenv("ANDROID_RELEASE_KEYSTORE")?.let { storeFile = file(it) } } }
     buildTypes { release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("debug") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

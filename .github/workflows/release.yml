@@ -35,6 +35,8 @@ jobs:
       NOTES: ${{ inputs.notes }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          submodules: true
 
       - name: Version is committed
         run: |
@@ -57,14 +59,14 @@ jobs:
 
       # Release is signed with the owner's debug key, as every earlier release: another key
       # cannot update installed copies. The build's release type uses the debug signing config,
-      # which reads ~/.android/debug.keystore. Its password is the default, android.
+      # which reads the keystore path exported below. Its password is android.
       - name: Signing key
         env:
           KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
         run: |
-          mkdir -p ~/.android
-          key=~/.android/debug.keystore
+          key="$RUNNER_TEMP/owner-debug.keystore"
           echo "$KEYSTORE" | base64 -d > "$key"
+          echo "ANDROID_RELEASE_KEYSTORE=$key" >> "$GITHUB_ENV"
           keytool -list -v -keystore "$key" -storepass android -alias androiddebugkey | grep 'E6:86:D1:94' > /dev/null || { echo "secret is not the owner's key"; exit 1; }
 
       - uses: gradle/actions/setup-gradle@v6.4.1
