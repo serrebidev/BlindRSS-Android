@@ -1,0 +1,129 @@
+name: Release
+
+# Builds, gates and signs the APK on a GitHub runner, then publishes it on Forgejo.
+# Commit the version (versionName in app/build.gradle.kts) on main first, then:
+#   gh workflow run release.yml -R serrebidev/BlindRSS-Android --ref main -f version=X.Y.Z -f notes="..."
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, such as 0.3.4. app/build.gradle.kts must already say it.
+        required: true
+        type: string
+      notes:
+        description: Release notes (Markdown).
+        required: true
+        type: string
+      dry_run:
+        description: Build and sign only, publish nothing.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ inputs.version }}
+      NOTES: ${{ inputs.notes }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Version is committed
+        run: |
+          grep -q "versionName = \"$VERSION\"" app/build.gradle.kts || { echo "app/build.gradle.kts is not $VERSION"; exit 1; }
+          printf '%s\n' "$NOTES" | grep -q '[^[:space:]]' || { echo "notes are empty"; exit 1; }
+
+      - name: Tag is free
+        if: ${{ !inputs.dry_run }}
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $FORGEJO_TOKEN" \
+            "https://git.serrebiradio.com/api/v1/repos/serrebi/BlindRSS-Android/tags/v$VERSION")
+          [ "$code" = 404 ] || { echo "Tag v$VERSION exists (HTTP $code)"; exit 1; }
+
+      - uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Release is signed with the owner's debug key, as every earlier release: another key
+      # cannot update installed copies. The build's release type uses the debug signing config,
+      # which reads ~/.android/debug.keystore. Its password is the default, android.
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          mkdir -p ~/.android
+          key=~/.android/debug.keystore
+          echo "$KEYSTORE" | base64 -d > "$key"
+          keytool -list -v -keystore "$key" -storepass android -alias androiddebugkey | grep 'E6:86:D1:94' > /dev/null || { echo "secret is not the owner's key"; exit 1; }
+
+      - uses: gradle/actions/setup-gradle@v6.4.1
+
+      - name: Build
+        run: ./gradlew --no-daemon --warning-mode all testDebugUnitTest assembleRelease
+
+      - name: Package
+        run: |
+          mkdir dist
+          apk="BlindRSS-Android-v$VERSION.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/$apk"
+          # Several build-tools versions are installed: take the newest apksigner.
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          cert=$("$signer" verify --print-certs "dist/$apk" | awk '/SHA-256 digest/ && !f {print; f=1}')
+          echo "$cert"
+          case "$cert" in *e686d194*) ;; *) echo "APK not signed with the owner's key"; exit 1 ;; esac
+          (cd dist && sha256sum "$apk" > "$apk.sha256")
+          printf '%s\n' "$NOTES" > dist/notes.md
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: BlindRSS-Android-v${{ inputs.version }}
+          path: dist/
+          compression-level: 0
+
+      - name: Publish on Forgejo
+        if: ${{ !inputs.dry_run }}
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+        # Tag by git push, draft, files, check, then public. The release never shows without
+        # its APK and .sha256, which the in-app updater needs.
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          apk="BlindRSS-Android-$tag.apk"
+          git remote set-url origin "https://x-access-token:$FORGEJO_TOKEN@git.serrebiradio.com/serrebi/BlindRSS-Android.git"
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+          api=https://git.serrebiradio.com/api/v1/repos/serrebi/BlindRSS-Android
+          h="Authorization: token $FORGEJO_TOKEN"
+          # Right after the tag push the create can fail once: retry it.
+          id="$(jq -n --arg t "$tag" --rawfile n dist/notes.md '{tag_name: $t, name: $t, body: $n, draft: true}' |
+            curl -sSf --retry 3 --retry-all-errors --retry-delay 5 -H "$h" -H 'Content-Type: application/json' -d @- "$api/releases" | jq -r .id)"
+          for f in "$apk" "$apk.sha256"; do
+            echo "Uploading $f ($(wc -c < "dist/$f") bytes)"
+            curl -sSf -o /dev/null -w 'HTTP %{http_code}, %{size_upload} bytes in %{time_total}s\n' \
+              --retry 3 --retry-all-errors --retry-delay 5 -H "$h" -F "attachment=@dist/$f" "$api/releases/$id/assets?name=$f"
+          done
+          present="$(curl -sSf -H "$h" "$api/releases/$id" | jq -r '.assets[].name')"
+          echo "$present"
+          [ "$(grep -c . <<<"$present")" = 2 ] || { echo "release must hold exactly the APK and its .sha256"; exit 1; }
+          for f in "$apk" "$apk.sha256"; do
+            grep -qx "$f" <<<"$present" || { echo "missing: $f"; exit 1; }
+          done
+          curl -sSf -o /dev/null -X PATCH -H "$h" -H 'Content-Type: application/json' \
+            -d '{"draft": false, "prerelease": false}' "$api/releases/$id"
+          test "$(curl -sSf "$api/releases/latest" | jq -r .tag_name)" = "$tag"
+          # The in-app updater checks the published APK against its .sha256.
+          curl -sSfL -o "$RUNNER_TEMP/$apk" "https://git.serrebiradio.com/serrebi/BlindRSS-Android/releases/download/$tag/$apk"
+          curl -sSfL "https://git.serrebiradio.com/serrebi/BlindRSS-Android/releases/download/$tag/$apk.sha256" |
+            (cd "$RUNNER_TEMP" && sha256sum -c)
